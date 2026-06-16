@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.svelte-kit
+.env
+
+# Build and Docs
+build
+docs
+CMakeLists.txt
+Doxyfile
+cmake-build-*
