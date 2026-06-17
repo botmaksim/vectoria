@@ -11,6 +11,8 @@ import {
   preprocessMathLive,
   extractVars,
   transformDerivatives,
+  transformImplicitMultiplication,
+  substituteCustomFunctions,
 } from "./transformers";
 import { compileGeometry } from "./geometryCompiler";
 import { compileCalculusAndRegression } from "./calculusCompiler";
@@ -63,7 +65,7 @@ export interface CompiledEquationData {
   ) => { x1: number; y1: number; x2: number; y2: number } | null;
   lineData?: (
     scope: any,
-  ) => { px: number; py: number; dx: number; dy: number } | null;
+  ) => any;
   ellipseData?: (
     scope: any,
   ) => { cx: number; cy: number; rx: number; ry: number } | null;
@@ -114,8 +116,9 @@ export interface CompiledEquationData {
  */
 export function compileExpression(
   text: string,
-  customFunctions?: Record<string, string>,
+  customFunctions?: Record<string, { param: string; body: string }>,
   isComplex: boolean = false,
+  customNames?: Set<string>,
 ): CompiledEquationData | null {
   if (!text || text.trim() === "") {
     Logger.debug("Evaluator", "Empty text provided for compilation, aborting.");
@@ -141,6 +144,37 @@ export function compileExpression(
       name = assignMatch[1].trim();
       exprText = assignMatch[2].trim();
       Logger.debug("Evaluator", `Extracted variable assignment: ${name}`);
+    }
+
+    // Preprocess custom functions and implicit multiplication via AST on LHS / RHS
+    const eqMatchPre = exprText.match(/^(.*?)(<=|>=|<|>|=|~|->)(.*)$/);
+    if (eqMatchPre) {
+      let left = eqMatchPre[1].trim();
+      const op = eqMatchPre[2];
+      let right = eqMatchPre[3].trim();
+      
+      try {
+        let leftNode = parse(left);
+        leftNode = substituteCustomFunctions(leftNode, customFunctions || {});
+        leftNode = transformImplicitMultiplication(leftNode, customNames || new Set());
+        left = leftNode.toString();
+      } catch {}
+
+      try {
+        let rightNode = parse(right);
+        rightNode = substituteCustomFunctions(rightNode, customFunctions || {});
+        rightNode = transformImplicitMultiplication(rightNode, customNames || new Set());
+        right = rightNode.toString();
+      } catch {}
+      
+      exprText = `${left} ${op} ${right}`;
+    } else {
+      try {
+        let node = parse(exprText);
+        node = substituteCustomFunctions(node, customFunctions || {});
+        node = transformImplicitMultiplication(node, customNames || new Set());
+        exprText = node.toString();
+      } catch {}
     }
 
     let result: CompiledEquationData | null = null;
@@ -262,7 +296,7 @@ export function compileExpression(
             "Compiling implicit equation representation.",
           );
           const implicitStr = `(${left}) - (${right})`;
-          const node = transformDerivatives(parse(implicitStr));
+          const node = transformDerivatives(parse(implicitStr), customFunctions);
           extractVars(node, vars);
           const code = node.compile();
 
@@ -295,7 +329,7 @@ export function compileExpression(
         "Evaluator",
         "Compiling standalone evaluation representation.",
       );
-      const nodeStandalone = transformDerivatives(parse(exprText));
+      const nodeStandalone = transformDerivatives(parse(exprText), customFunctions);
       extractVars(nodeStandalone, vars);
       const codeStandalone = nodeStandalone.compile();
 
@@ -328,3 +362,4 @@ export function compileExpression(
     return null;
   }
 }
+

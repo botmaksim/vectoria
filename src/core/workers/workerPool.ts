@@ -39,10 +39,12 @@ export class WorkerPool {
     id: string,
     exprText: string,
     isComplex: boolean,
+    customFunctions?: Record<string, { param: string; body: string }>,
+    customNames?: string[],
   ): Promise<any> {
     return new Promise((resolve, reject) => {
       const task = {
-        payload: { id, exprText, isComplex },
+        payload: { id, exprText, isComplex, customFunctions, customNames },
         resolve,
         reject,
       };

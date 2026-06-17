@@ -5,7 +5,7 @@
      * @details Manages 2D and WebGL contexts, coordinates input events, manages animation loops, and delegates rendering mathematically compiled data onto the viewport.
      */
     import { onMount, onDestroy } from 'svelte';
-    import { expressions, camera, sliders, tickerActive } from '../../state/store';
+    import { expressions, camera, sliders, tickerActive, selectedExpressionId } from '../../state/store';
     import { plotExpressions, type CompiledEquation } from '../../core/renderer/plotter';
     import { Camera } from '../../core/renderer/camera';
     import { compileExpression, type EquationType, type CompiledEquationData } from '../../core/math/evaluator';
@@ -38,11 +38,28 @@
     let circle3PtsPoints: string[] = [];
     let midpointPoints: string[] = [];
     let perpendicularObjects: string[] = [];
+    let parallelObjects: string[] = [];
+    let conicPoints: string[] = [];
     let lineStartPoint: string | null = null;
     let perpBisectorStartPoint: string | null = null;
     let angleBisectorPoints: string[] = [];
     let intersectLines: string[] = [];
     let tangentStartPoint: string | null = null;
+
+    function autoName(prefix: string): string {
+        let maxIndex = 0;
+        const regex = new RegExp(`^${prefix}_(?:\\{)?(\\d+)(?:\\})?\\s*=`);
+        for (const expr of $expressions) {
+            const match = expr.text.match(regex);
+            if (match) {
+                const idx = parseInt(match[1], 10);
+                if (idx > maxIndex) {
+                    maxIndex = idx;
+                }
+            }
+        }
+        return `${prefix}_{${maxIndex + 1}}`;
+    }
 
     // Pointer state for Multi-touch Pan/Zoom
     let activePointers = new Map<number, PointerEvent>();
@@ -52,6 +69,22 @@
     // Theme state
     import { theme } from '../../state/theme';
     let themeColors = { major: '#d1d5db', minor: '#f3f4f6', text: '#6b7280', bg: '#ffffff' };
+
+    $: if ($activeTool) {
+        segmentStartPoint = null;
+        polygonPoints = [];
+        circleStartPoint = null;
+        circle3PtsPoints = [];
+        midpointPoints = [];
+        perpendicularObjects = [];
+        parallelObjects = [];
+        conicPoints = [];
+        lineStartPoint = null;
+        perpBisectorStartPoint = null;
+        angleBisectorPoints = [];
+        intersectLines = [];
+        tangentStartPoint = null;
+    }
 
     $: {
         if (canvas) {
@@ -71,21 +104,41 @@
 
     $: {
         const requiredVars = new Set<string>();
-        const customFunctions: Record<string, string> = {};
+        const customFunctions: Record<string, { param: string; body: string }> = {};
+        const customNames = new Set<string>();
+
+        // 1. Gather custom functions
         for (const expr of $expressions) {
             const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
-            if (match) customFunctions[match[1]] = match[3].trim();
-        }
-
-        for (const expr of $expressions) {
-            const compiled = compileExpression(expr.text, customFunctions, $settings.domainColoring);
-            if (compiled && compiled.vars) {
-                compiled.vars.forEach(v => requiredVars.add(v));
+            if (match) {
+                const name = match[1];
+                const param = match[2];
+                const body = match[3].trim();
+                customFunctions[name] = { param, body };
+                customNames.add(name);
             }
         }
-        if (requiredVars.size > 0) {
-            sliders.requireVars(Array.from(requiredVars));
+
+        // 2. Gather variable assignments
+        for (const expr of $expressions) {
+            const assignMatch = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=(.*)$/);
+            if (assignMatch && !["y", "x", "r", "f(x)"].includes(assignMatch[1].trim())) {
+                customNames.add(assignMatch[1].trim());
+            }
         }
+
+        // 3. Compile expressions and extract variables (filter out defined ones)
+        for (const expr of $expressions) {
+            const compiled = compileExpression(expr.text, customFunctions, $settings.domainColoring, customNames);
+            if (compiled && compiled.vars) {
+                compiled.vars.forEach(v => {
+                    if (!customNames.has(v) && v !== 't') {
+                        requiredVars.add(v);
+                    }
+                });
+            }
+        }
+        sliders.syncVars(Array.from(requiredVars));
     }
 
     let lastEquationsToDraw: CompiledEquation[] = [];
@@ -220,10 +273,21 @@
                 }
 
                 const equationsToDraw: CompiledEquation[] = [];
-                const customFunctions: Record<string, string> = {};
+                const customFunctions: Record<string, { param: string; body: string }> = {};
+                const customNames = new Set<string>();
+
                 for (const expr of $expressions) {
                     const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
-                    if (match) customFunctions[match[1]] = match[3].trim();
+                    if (match) {
+                        customFunctions[match[1]] = { param: match[2], body: match[3].trim() };
+                        customNames.add(match[1]);
+                    }
+                }
+                for (const expr of $expressions) {
+                    const assignMatch = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=(.*)$/);
+                    if (assignMatch && !["y", "x", "r", "f(x)"].includes(assignMatch[1].trim())) {
+                        customNames.add(assignMatch[1].trim());
+                    }
                 }
 
                 for (const expr of $expressions) {
@@ -252,7 +316,7 @@
                     let cached = compiledCache.get(expr.id);
                     // Also invalidate cache if domainColoring changed
                     if (!cached || cached.text !== expr.text || (cached as any).domainColoring !== $settings.domainColoring) {
-                        const compiled = compileExpression(expr.text, customFunctions, $settings.domainColoring);
+                        const compiled = compileExpression(expr.text, customFunctions, $settings.domainColoring, customNames);
                         cached = {
                             text: expr.text,
                             data: compiled,
@@ -262,17 +326,20 @@
                         
                         // Delegate heavy GLSL compilation array to the Worker Pool
                         if (compiled && (compiled.type === 'implicit' || compiled.type === 'inequality') && !compiled.glslExpr) {
-                            compilerPool.compileGLSLAsync(expr.id, expr.text, $settings.domainColoring)
+                            compilerPool.compileGLSLAsync(
+                                expr.id,
+                                expr.text,
+                                $settings.domainColoring,
+                                customFunctions,
+                                Array.from(customNames)
+                            )
                                 .then((workerResult: any) => {
                                     if (workerResult.success) {
                                         const stillCached = compiledCache.get(expr.id);
                                         if (stillCached && stillCached.data) {
                                             stillCached.data.glslExpr = workerResult.glsl;
                                             stillCached.data.glslUniforms = workerResult.uniforms;
-                                            // Trigger a repaint so the new shader shows up immediately
-                                            if (canvas && webglCanvas) {
-                                                paint($expressions, $camera, $timeState);
-                                            }
+                                            // The render loop running on requestAnimationFrame will automatically pick up the new shader values
                                         }
                                     }
                                 }).catch(() => {});
@@ -283,7 +350,7 @@
                         const dataVars = cached!.data.vars || [];
                         const arrayVars = dataVars.filter(v => Array.isArray(currentScope[v]));
                         
-                        if (arrayVars.length > 0) {
+                        if (arrayVars.length > 0 && !['fourier', 'voronoi', 'delaunay'].includes(cached!.data.type)) {
                             // Find the maximum length among the array variables
                             const maxLength = Math.max(...arrayVars.map(v => currentScope[v].length));
                             for (let i = 0; i < maxLength; i++) {
@@ -349,10 +416,19 @@
                                     currentScope[eq.name] = [pt.x, pt.y];
                                 } else if (eq.type === 'line' && eq.lineData) {
                                     const ld = eq.lineData(currentScope);
-                                    if (ld && !isNaN(ld.px)) currentScope[eq.name] = ld;
+                                    if (ld && (typeof ld.px === 'number' || typeof ld.a === 'number' || Array.isArray(ld))) currentScope[eq.name] = ld;
                                 } else if (eq.type === 'circle' && eq.circleData) {
                                     const cd = eq.circleData(currentScope);
                                     if (cd && !isNaN(cd.cx)) currentScope[eq.name] = cd;
+                                } else if (eq.type === 'ellipse' && eq.ellipseData) {
+                                    const ed = eq.ellipseData(currentScope);
+                                    if (ed && !isNaN(ed.cx)) currentScope[eq.name] = ed;
+                                } else if (eq.type === 'segment' && eq.segmentData) {
+                                    const sd = eq.segmentData(currentScope);
+                                    if (sd && !isNaN(sd.x1)) currentScope[eq.name] = sd;
+                                } else if (eq.type === 'polygon' && eq.polygonData) {
+                                    const pd = eq.polygonData(currentScope);
+                                    if (pd) currentScope[eq.name] = pd;
                                 } else if (eq.constantValue) {
                                     const val = eq.constantValue(currentScope);
                                     if (isNaN(val)) throw new Error('NaN');
@@ -391,6 +467,8 @@
                 const cpuEquations: CompiledEquation[] = [];
 
                 for (const eq of equationsToDraw) {
+                    const baseId = eq.id.split('_')[0];
+                    (eq as any).selected = ($selectedExpressionId !== null && baseId === $selectedExpressionId);
                     if ((eq.type === 'implicit' || eq.type === 'inequality') && eq.glslExpr) {
                         webglEquations.push(eq);
                     } else {
@@ -425,8 +503,12 @@
                     }
                 }
                 
-                // Advance Physics Engine
-                physicsEngine.step(dt, 5, colliders);
+                // Advance Physics Engine (or reset if paused/t=0)
+                if (!$tickerActive || $timeState.t === 0) {
+                    physicsEngine.reset();
+                } else {
+                    physicsEngine.step(dt, 5, colliders);
+                }
                 
                 currentPois = plotExpressions(ctx!, cpuEquations, cam, width, height, currentScope, themeColors, $settings.gridType, dt, $odeSpawners);
                 
@@ -481,7 +563,147 @@
         if (hoveredPointId) {
             draggingPointId = hoveredPointId;
             canvas.setPointerCapture(e.pointerId);
+            const baseId = hoveredPointId.split('_')[0];
+            selectedExpressionId.set(baseId);
             return;
+        }
+
+        if ($activeTool === 'move') {
+            const rect = canvas.getBoundingClientRect();
+            const mathP = cam.screenToMath(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
+            
+            let clickedId = null;
+            let minDist = 15; // 15 pixels threshold
+            
+            // Check points
+            for (const eq of lastEquationsToDraw) {
+                if (eq.type === 'point' && eq.pointData) {
+                    try {
+                        const p = eq.pointData(lastScope);
+                        const dx = p.x - mathP.x;
+                        const dy = p.y - mathP.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy) * cam.state.zoom;
+                        if (dist < minDist) {
+                            minDist = dist;
+                            clickedId = eq.id;
+                        }
+                    } catch {}
+                }
+            }
+            
+            // Check segments
+            if (!clickedId) {
+                for (const eq of lastEquationsToDraw) {
+                    if (eq.type === 'segment' && eq.segmentData) {
+                        try {
+                            const seg = eq.segmentData(lastScope);
+                            if (seg) {
+                                const l2 = (seg.x1 - seg.x2)**2 + (seg.y1 - seg.y2)**2;
+                                let t = Math.max(0, Math.min(1, ((mathP.x - seg.x1) * (seg.x2 - seg.x1) + (mathP.y - seg.y1) * (seg.y2 - seg.y1)) / l2));
+                                const projX = seg.x1 + t * (seg.x2 - seg.x1);
+                                const projY = seg.y1 + t * (seg.y2 - seg.y1);
+                                const dist = Math.sqrt((mathP.x - projX)**2 + (mathP.y - projY)**2) * cam.state.zoom;
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    clickedId = eq.id;
+                                }
+                            }
+                        } catch {}
+                    }
+                }
+            }
+            
+            // Check lines
+            if (!clickedId) {
+                for (const eq of lastEquationsToDraw) {
+                    if (eq.type === 'line' && eq.lineData) {
+                        try {
+                            const ld = eq.lineData(lastScope);
+                            if (ld) {
+                                let dist = 1000;
+                                if ('dx' in ld) {
+                                    const l2 = ld.dx*ld.dx + ld.dy*ld.dy;
+                                    const t = ((mathP.x - ld.px) * ld.dx + (mathP.y - ld.py) * ld.dy) / l2;
+                                    const projX = ld.px + t * ld.dx;
+                                    const projY = ld.py + t * ld.dy;
+                                    dist = Math.sqrt((mathP.x - projX)**2 + (mathP.y - projY)**2) * cam.state.zoom;
+                                } else if ('a' in ld) {
+                                    const { a, b, c } = ld;
+                                    dist = Math.abs(a * mathP.x + b * mathP.y + c) / Math.sqrt(a * a + b * b) * cam.state.zoom;
+                                }
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    clickedId = eq.id;
+                                }
+                            }
+                        } catch {}
+                    }
+                }
+            }
+            
+            // Check circles
+            if (!clickedId) {
+                for (const eq of lastEquationsToDraw) {
+                    if (eq.type === 'circle' && eq.circleData) {
+                        try {
+                            const cd = eq.circleData(lastScope);
+                            if (cd) {
+                                const distToCenter = Math.sqrt((mathP.x - cd.cx)**2 + (mathP.y - cd.cy)**2);
+                                const dist = Math.abs(distToCenter - cd.r) * cam.state.zoom;
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    clickedId = eq.id;
+                                }
+                            }
+                        } catch {}
+                    }
+                }
+            }
+
+            // Check ellipses
+            if (!clickedId) {
+                for (const eq of lastEquationsToDraw) {
+                    if (eq.type === 'ellipse' && eq.ellipseData) {
+                        try {
+                            const ed = eq.ellipseData(lastScope);
+                            if (ed) {
+                                const scaleFactor = ed.rx / ed.ry;
+                                const sPt = { x: mathP.x, y: mathP.y * scaleFactor };
+                                const sCenter = { x: ed.cx, y: ed.cy * scaleFactor };
+                                const distToCenter = Math.sqrt((sPt.x - sCenter.x)**2 + (sPt.y - sCenter.y)**2);
+                                const dist = Math.abs(distToCenter - ed.rx) * cam.state.zoom;
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    clickedId = eq.id;
+                                }
+                            }
+                        } catch {}
+                    }
+                }
+            }
+
+            // Check functions
+            if (!clickedId) {
+                for (const eq of lastEquationsToDraw) {
+                    if (eq.type === 'explicit' && eq.fnExplicit) {
+                        try {
+                            const yVal = eq.fnExplicit(mathP.x, lastScope);
+                            const dist = Math.abs(yVal - mathP.y) * cam.state.zoom;
+                            if (dist < minDist) {
+                                minDist = dist;
+                                clickedId = eq.id;
+                            }
+                        } catch {}
+                    }
+                }
+            }
+            
+            if (clickedId) {
+                const baseId = clickedId.split('_')[0];
+                selectedExpressionId.set(baseId);
+            } else {
+                selectedExpressionId.set(null);
+            }
         }
 
         if ($activeTool === 'ode') {
@@ -494,7 +716,7 @@
         if ($activeTool === 'point') {
             const rect = canvas.getBoundingClientRect();
             const mathP = cam.screenToMath(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
-            const pId = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+            const pId = autoName('P');
             expressions.addExpression(`${pId} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
             activeTool.setMode('move');
             return;
@@ -524,18 +746,18 @@
                 if (clickedPointName) {
                     segmentStartPoint = clickedPointName;
                 } else {
-                    const pId = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+                    const pId = autoName('P');
                     expressions.addExpression(`${pId} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
                     segmentStartPoint = pId;
                 }
             } else {
                 let endPointName = clickedPointName;
                 if (!endPointName) {
-                    endPointName = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+                    endPointName = autoName('P');
                     expressions.addExpression(`${endPointName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
                 }
                 if (segmentStartPoint !== endPointName) {
-                    expressions.addExpression(`Segment(${segmentStartPoint}, ${endPointName})`);
+                    expressions.addExpression(`${autoName('s')} = Segment(${segmentStartPoint}, ${endPointName})`);
                 }
                 segmentStartPoint = null;
                 activeTool.setMode('move');
@@ -565,7 +787,7 @@
 
             let ptName = clickedPointName;
             if (!ptName) {
-                ptName = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+                ptName = autoName('P');
                 expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
             }
 
@@ -604,18 +826,18 @@
                 if (clickedPointName) {
                     circleStartPoint = clickedPointName;
                 } else {
-                    const pId = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+                    const pId = autoName('P');
                     expressions.addExpression(`${pId} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
                     circleStartPoint = pId;
                 }
             } else {
                 let endPointName = clickedPointName;
                 if (!endPointName) {
-                    endPointName = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+                    endPointName = autoName('P');
                     expressions.addExpression(`${endPointName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
                 }
                 if (circleStartPoint !== endPointName) {
-                    expressions.addExpression(`Circle(${circleStartPoint}, ${endPointName})`);
+                    expressions.addExpression(`${autoName('c')} = Circle(${circleStartPoint}, ${endPointName})`);
                 }
                 circleStartPoint = null;
                 activeTool.setMode('move');
@@ -623,7 +845,7 @@
             return;
         }
 
-        if (['line', 'perpBisector', 'perpendicular', 'tangent', 'midpoint', 'circle3pts', 'intersect', 'angleBisector'].includes($activeTool)) {
+        if (['line', 'perpBisector', 'perpendicular', 'parallel', 'conic', 'tangent', 'midpoint', 'circle3pts', 'intersect', 'angleBisector'].includes($activeTool)) {
             const rect = canvas.getBoundingClientRect();
             const mathP = cam.screenToMath(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
             
@@ -663,7 +885,7 @@
                                 if (dist < 15) clickedLineName = eq.name;
                             }
                         } catch (err) {}
-                    } else if ($activeTool === 'tangent' && !eq.pointData && !clickedCurveName && !clickedPointName) {
+                    } else if (($activeTool === 'tangent' || $activeTool === 'parallel') && !eq.pointData && !clickedCurveName && !clickedPointName) {
                          clickedCurveName = eq.name; 
                     }
                 }
@@ -673,7 +895,7 @@
                 if (clickedLineName) {
                     intersectLines.push(clickedLineName);
                     if (intersectLines.length === 2) {
-                        expressions.addExpression(`Intersect(${intersectLines[0]}, ${intersectLines[1]})`);
+                        expressions.addExpression(`${autoName('P')} = Intersect(${intersectLines[0]}, ${intersectLines[1]})`);
                         intersectLines = [];
                         activeTool.setMode('move');
                     }
@@ -684,7 +906,7 @@
                     angleBisectorPoints = [];
                     intersectLines.push(clickedLineName);
                     if (intersectLines.length === 2) {
-                        expressions.addExpression(`AngleBisector(${intersectLines[0]}, ${intersectLines[1]})`);
+                        expressions.addExpression(`${autoName('L')} = AngleBisector(${intersectLines[0]}, ${intersectLines[1]})`);
                         intersectLines = [];
                         activeTool.setMode('move');
                     }
@@ -692,12 +914,12 @@
                     intersectLines = [];
                     let ptName = clickedPointName;
                     if (!ptName) {
-                        ptName = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+                        ptName = autoName('P');
                         expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
                     }
                     angleBisectorPoints.push(ptName);
                     if (angleBisectorPoints.length === 3) {
-                        expressions.addExpression(`AngleBisector(${angleBisectorPoints.join(', ')})`);
+                        expressions.addExpression(`${autoName('L')} = AngleBisector(${angleBisectorPoints.join(', ')})`);
                         angleBisectorPoints = [];
                         activeTool.setMode('move');
                     }
@@ -709,7 +931,7 @@
                 } else {
                     let ptName = clickedPointName;
                     if (!ptName) {
-                        ptName = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+                        ptName = autoName('P');
                         expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
                     }
                     if (!perpendicularObjects.includes(ptName)) {
@@ -718,8 +940,41 @@
                 }
                 
                 if (perpendicularObjects.length === 2) {
-                    expressions.addExpression(`Perpendicular(${perpendicularObjects[0]}, ${perpendicularObjects[1]})`);
+                    expressions.addExpression(`${autoName('L')} = Perpendicular(${perpendicularObjects[0]}, ${perpendicularObjects[1]})`);
                     perpendicularObjects = [];
+                    activeTool.setMode('move');
+                }
+                return;
+            } else if ($activeTool === 'parallel') {
+                if (clickedLineName && !parallelObjects.includes(clickedLineName)) {
+                    parallelObjects.push(clickedLineName);
+                } else {
+                    let ptName = clickedPointName;
+                    if (!ptName) {
+                        ptName = autoName('P');
+                        expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                    }
+                    if (!parallelObjects.includes(ptName)) {
+                        parallelObjects.push(ptName);
+                    }
+                }
+                
+                if (parallelObjects.length === 2) {
+                    expressions.addExpression(`${autoName('L')} = Parallel(${parallelObjects[0]}, ${parallelObjects[1]})`);
+                    parallelObjects = [];
+                    activeTool.setMode('move');
+                }
+                return;
+            } else if ($activeTool === 'conic') {
+                let ptName = clickedPointName;
+                if (!ptName) {
+                    ptName = autoName('P');
+                    expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                }
+                conicPoints.push(ptName);
+                if (conicPoints.length === 5) {
+                    expressions.addExpression(`${autoName('c')} = Conic(${conicPoints.join(', ')})`);
+                    conicPoints = [];
                     activeTool.setMode('move');
                 }
                 return;
@@ -729,14 +984,14 @@
             let ptName = clickedPointName;
             
             if (!ptName) {
-                ptName = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+                ptName = autoName('P');
                 expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
             }
 
             if ($activeTool === 'circle3pts') {
                 circle3PtsPoints.push(ptName);
                 if (circle3PtsPoints.length === 3) {
-                    expressions.addExpression(`Circle(${circle3PtsPoints.join(', ')})`);
+                    expressions.addExpression(`${autoName('c')} = Circle(${circle3PtsPoints.join(', ')})`);
                     circle3PtsPoints = [];
                     activeTool.setMode('move');
                 }
@@ -745,7 +1000,7 @@
             if ($activeTool === 'midpoint') {
                 midpointPoints.push(ptName);
                 if (midpointPoints.length === 2) {
-                    const midPtId = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + Math.floor(Math.random() * 100);
+                    const midPtId = autoName('P');
                     expressions.addExpression(`${midPtId} = Midpoint(${midpointPoints[0]}, ${midpointPoints[1]})`);
                     midpointPoints = [];
                     activeTool.setMode('move');
@@ -759,14 +1014,14 @@
                 else if ($activeTool === 'tangent') tangentStartPoint = ptName;
             } else {
                 if ($activeTool === 'line') {
-                    expressions.addExpression(`Line(${startState}, ${ptName})`);
+                    expressions.addExpression(`${autoName('L')} = Line(${startState}, ${ptName})`);
                     lineStartPoint = null;
                 } else if ($activeTool === 'perpBisector') {
-                    expressions.addExpression(`PerpendicularBisector(${startState}, ${ptName})`);
+                    expressions.addExpression(`${autoName('L')} = PerpendicularBisector(${startState}, ${ptName})`);
                     perpBisectorStartPoint = null;
                 } else if ($activeTool === 'tangent') {
                      const target = clickedCurveName || ptName;
-                     expressions.addExpression(`Tangent(${tangentStartPoint}, ${target})`);
+                     expressions.addExpression(`${autoName('L')} = Tangent(${tangentStartPoint}, ${target})`);
                      tangentStartPoint = null;
                 }
                 activeTool.setMode('move');

@@ -5,6 +5,7 @@
     import { expressions, camera, sliders } from '../../state/store';
     import { get } from 'svelte/store';
     import { Logger } from '../../utils/logger';
+    import { physicsEngine } from '../../core/math/physicsEngine';
 
     function closeGallery() {
         $showGallery = false;
@@ -12,6 +13,7 @@
 
     function loadPreset(preset: Preset) {
         Logger.info('Gallery', `Loading preset: ${preset.id}`);
+        physicsEngine.reset();
         
         // Wipe existing state
         expressions.set([]);

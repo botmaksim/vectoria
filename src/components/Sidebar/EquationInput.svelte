@@ -7,13 +7,11 @@
 
     import { t } from '../../state/i18n';
     import type { Expression } from '../../core/types';
-    import { expressions } from '../../state/store';
-    import { playSonification, toggleOscillatorMode, updateOscillatorWave } from '../../utils/audio';
+    import { expressions, sliders, selectedExpressionId } from '../../state/store';
     import { onMount } from 'svelte';
     import StylePopover from './StylePopover.svelte';
     import { Logger } from '../../utils/logger';
     import { get } from 'svelte/store';
-    import { sliders } from '../../state/store';
     import { compileExpression } from '../../core/math/evaluator';
     import 'mathlive';
 
@@ -35,44 +33,28 @@
         }
     });
 
+    // Keep math-field value in sync with external expression updates (e.g. from state recovery or presets)
+    $: if (mathFieldRef && expression && expression.latex !== undefined) {
+        if (mathFieldRef.value !== expression.latex) {
+            mathFieldRef.value = expression.latex;
+        }
+    }
+
     function handleTextInput(e: Event) {
         const val = (e.target as HTMLTextAreaElement).value;
         expressions.updateText(expression.id, val, val);
-    }
-
-    let isOscillating = false;
-
-    $: if (isOscillating) {
-        // Track changes to slider and update realtime
-        const activeSliders = $sliders;
-        const scope: Record<string, any> = {};
-        for (const [key, s] of Object.entries(activeSliders)) scope[key] = s.value;
-        updateOscillatorWave(expression.id, expression.text, scope);
-    }
-
-    /**
-     * @brief Triggers the audio sonification for the current expression.
-     */
-    function handlePlaySound() {
-        Logger.info('EquationInput', `Sonification sweep requested for expression ${expression.id}`);
-        playSonification(expression.text);
-    }
-
-    function handleToggleOscillator() {
-        const activeSliders = get(sliders);
-        const scope: Record<string, any> = {};
-        for (const [key, s] of Object.entries(activeSliders)) scope[key] = s.value;
-        isOscillating = toggleOscillatorMode(expression.id, expression.text, scope);
     }
 
     /**
      * @brief Executes an action expression (e.g. a -> a + 1).
      */
     function handlePlayAction() {
-        const customFunctions: Record<string, string> = {};
+        const customFunctions: Record<string, { param: string; body: string }> = {};
         for (const expr of get(expressions)) {
             const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
-            if (match) customFunctions[match[1]] = match[3].trim();
+            if (match) {
+                customFunctions[match[1]] = { param: match[2], body: match[3].trim() };
+            }
         }
 
         const compiled = compileExpression(expression.text, customFunctions);
@@ -88,7 +70,9 @@
     }
 </script>
 
-<div class="equation-row">
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="equation-row" class:selected={$selectedExpressionId === expression.id} on:click={() => selectedExpressionId.set(expression.id)}>
     <div class="color-indicator-container">
         <button 
             class="color-indicator" 
@@ -118,10 +102,6 @@
         <button on:click={handlePlayAction} class="icon-btn action-btn" aria-label="Execute Action" title="Выполнить действие">▶</button>
     {/if}
 
-    <!-- Sweep audio -->
-    <button on:click={handlePlaySound} class="icon-btn sound-btn" aria-label="Play sound" title="Озвучить (Sweep)">🔊</button>
-    <!-- Oscillator audio -->
-    <button on:click={handleToggleOscillator} class="icon-btn osc-btn" class:active={isOscillating} aria-label="Oscillator" title="Осциллятор (Wavetable)">〰</button>
     <button on:click={() => expressions.toggleVisible(expression.id)} class="icon-btn" aria-label={expression.visible ? 'Hide expression' : 'Show expression'}>
         {expression.visible ? '👁' : '🚫'}
     </button>
@@ -157,6 +137,11 @@
         border: 1px solid var(--border-color);
         box-shadow: 0 2px 6px rgba(0,0,0,0.02);
         transition: border-color 0.2s, box-shadow 0.2s, background-color 0.3s ease;
+    }
+    .equation-row.selected {
+        border-color: var(--accent-color);
+        background-color: color-mix(in srgb, var(--accent-color) 6%, var(--bg-surface));
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
     }
     .equation-row:focus-within {
         border-color: var(--accent-color);
@@ -232,14 +217,6 @@
     .delete:hover {
         color: var(--danger-color);
         background: color-mix(in srgb, var(--danger-color) 10%, transparent);
-    }
-    .sound-btn:hover {
-        color: #3b82f6;
-    }
-    .osc-btn.active {
-        color: #8b5cf6;
-        background: color-mix(in srgb, #8b5cf6 15%, transparent);
-        font-weight: bold;
     }
     .action-btn {
         color: var(--success-color, #10b981);

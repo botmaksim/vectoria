@@ -13,6 +13,10 @@
     import 'nerdamer/Calculus.js';
     import 'nerdamer/Solve.js';
     import { Logger } from '../../utils/logger';
+    import { expressions, sliders } from '../../state/store';
+    import { get } from 'svelte/store';
+    import { parse } from 'mathjs';
+    import { substituteCustomFunctions, transformImplicitMultiplication } from '../../core/math/transformers';
 
     export let onClose: () => void;
 
@@ -56,8 +60,42 @@
 
         try {
             let res = '';
-            let expression = textInput.replace(/\s+/g, '');
-            Logger.debug('CasPanel', `Computing ${mode} for: ${expression}`);
+            
+            // Gather custom functions & custom names
+            const customFunctions: Record<string, { param: string; body: string }> = {};
+            const customNames = new Set<string>();
+            const currentExprs = get(expressions);
+            for (const expr of currentExprs) {
+                const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
+                if (match) {
+                    customFunctions[match[1]] = { param: match[2], body: match[3].trim() };
+                    customNames.add(match[1]);
+                }
+            }
+            for (const expr of currentExprs) {
+                const assignMatch = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=(.*)$/);
+                if (assignMatch && !["y", "x", "r", "f(x)"].includes(assignMatch[1].trim())) {
+                    customNames.add(assignMatch[1].trim());
+                }
+            }
+
+            // Parse textInput to AST and substitute custom functions & implicit multiplication
+            let node = parse(textInput);
+            node = substituteCustomFunctions(node, customFunctions);
+            node = transformImplicitMultiplication(node, customNames);
+
+            // Substitute slider values as numeric constants
+            const currentSliders = get(sliders);
+            node = node.transform((n: any) => {
+                if (n.isSymbolNode && currentSliders[n.name] !== undefined) {
+                    const ConstantNode = parse('0').constructor as any;
+                    return new ConstantNode(currentSliders[n.name].value);
+                }
+                return n;
+            });
+
+            let expression = node.toString();
+            Logger.debug('CasPanel', `Computing ${mode} for preprocessed CAS expr: ${expression}`);
             
             stepsLatex = [];
 

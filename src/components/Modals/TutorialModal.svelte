@@ -1,15 +1,18 @@
 <script lang="ts">
     /**
      * @file TutorialModal.svelte
-     * @brief Explanatory modal providing a tutorial to the user.
+     * @brief Explanatory modal providing a tutorial and searchable function reference.
      * @details Uses localized strings to guide users through the application's functionality.
      */
 
-    import { t } from '../../state/i18n';
+    import { t, locale } from '../../state/i18n';
     import { fade, scale } from 'svelte/transition';
 
     export let onClose: () => void;
 
+    let activeTab: 'guide' | 'reference' = 'guide';
+
+    // Steps for guide
     let currentStep = 0;
     const steps = [
         { title: 'tutorial_eqs', icon: '📝' },
@@ -35,40 +38,274 @@
     function prevStep() {
         if (currentStep > 0) currentStep--;
     }
+
+    // Reference items
+    let searchQuery = '';
+    let selectedCategory: 'all' | 'geometry' | 'physics' | 'analysis' | 'calculus' = 'all';
+
+    const referenceItems = [
+        {
+            name: 'Parallel',
+            category: 'geometry',
+            syntax: 'Parallel(Point, Line) or Parallel(Line, Point)',
+            desc_en: 'Creates a line parallel to the given line passing through the specified point.',
+            desc_ru: 'Создает прямую, параллельную данной прямой, проходящую через указанную точку.',
+            example: 'L_{1} = Parallel(P_{1}, L_{2})'
+        },
+        {
+            name: 'Conic',
+            category: 'geometry',
+            syntax: 'Conic(A, B, C, D, E)',
+            desc_en: 'Fits a conic section (ellipse, parabola, or hyperbola) passing through 5 points.',
+            desc_ru: 'Строит коническое сечение (эллипс, парабола, гипербола) через 5 заданных точек.',
+            example: 'c_{1} = Conic(A, B, C, D, E)'
+        },
+        {
+            name: 'Line',
+            category: 'geometry',
+            syntax: 'Line(Point1, Point2)',
+            desc_en: 'Creates an infinite straight line passing through two points.',
+            desc_ru: 'Создает бесконечную прямую, проходящую через две точки.',
+            example: 'L_{1} = Line(A, B)'
+        },
+        {
+            name: 'Segment',
+            category: 'geometry',
+            syntax: 'Segment(Point1, Point2)',
+            desc_en: 'Creates a line segment between two points.',
+            desc_ru: 'Создает отрезок между двумя точками.',
+            example: 's_{1} = Segment(A, B)'
+        },
+        {
+            name: 'Circle',
+            category: 'geometry',
+            syntax: 'Circle(Center, Point) or Circle(Center, Radius)',
+            desc_en: 'Creates a circle with a specified center and passing through a point, or with a fixed radius value.',
+            desc_ru: 'Создает окружность с заданным центром, проходящую через точку, либо с фиксированным радиусом.',
+            example: 'c_{1} = Circle(O, A)'
+        },
+        {
+            name: 'Perpendicular',
+            category: 'geometry',
+            syntax: 'Perpendicular(Point, Line) or Perpendicular(Line, Point)',
+            desc_en: 'Creates a line perpendicular to the given line passing through the point.',
+            desc_ru: 'Создает прямую, перпендикулярную данной прямой, проходящую через указанную точку.',
+            example: 'L_{1} = Perpendicular(P_{1}, L_{2})'
+        },
+        {
+            name: 'PerpendicularBisector',
+            category: 'geometry',
+            syntax: 'PerpendicularBisector(Point1, Point2) or PerpendicularBisector(Segment)',
+            desc_en: 'Creates a perpendicular bisector of a segment or two points.',
+            desc_ru: 'Создает срединный перпендикуляр к отрезку или между двумя точками.',
+            example: 'L_{1} = PerpendicularBisector(A, B)'
+        },
+        {
+            name: 'AngleBisector',
+            category: 'geometry',
+            syntax: 'AngleBisector(A, B, C) or AngleBisector(Line1, Line2)',
+            desc_en: 'Creates angle bisectors. For three points, bisects angle ABC. For two lines, returns both bisector lines.',
+            desc_ru: 'Создает биссектрисы угла. Для трех точек строит биссектрису угла ABC. Для двух прямых возвращает обе биссектрисы.',
+            example: 'L_{1} = AngleBisector(A, B, C)'
+        },
+        {
+            name: 'Midpoint',
+            category: 'geometry',
+            syntax: 'Midpoint(Point1, Point2) or Midpoint(Segment)',
+            desc_en: 'Calculates the midpoint coordinates of a segment or between two points.',
+            desc_ru: 'Находит середину отрезка или среднюю точку между двумя точками.',
+            example: 'M_{1} = Midpoint(A, B)'
+        },
+        {
+            name: 'Tangent',
+            category: 'geometry',
+            syntax: 'Tangent(Point, Curve)',
+            desc_en: 'Creates tangent lines from a point to a circle, ellipse, or mathematical function.',
+            desc_ru: 'Создает касательные линии из точки к окружности, эллипсу или математической функции.',
+            example: 'L_{1} = Tangent(A, c_{1})'
+        },
+        {
+            name: 'Intersect',
+            category: 'geometry',
+            syntax: 'Intersect(Line1, Line2)',
+            desc_en: 'Finds the intersection point of two lines, segments, or circles.',
+            desc_ru: 'Находит точку пересечения двух прямых, отрезков или окружностей.',
+            example: 'P_{1} = Intersect(L_{1}, L_{2})'
+        },
+        {
+            name: 'VectorField',
+            category: 'physics',
+            syntax: 'VectorField(u(x, y), v(x, y))',
+            desc_en: 'Creates a 2D vector field with custom horizontal and vertical components.',
+            desc_ru: 'Создает двумерное векторное поле с заданными горизонтальной и вертикальной компонентами.',
+            example: 'VectorField(-y, x)'
+        },
+        {
+            name: 'PhysicsNode',
+            category: 'physics',
+            syntax: 'PhysicsNode(name, x, y, pinned)',
+            desc_en: 'Creates a point mass node inside the Verlet physics engine. Pinned nodes act as fixed pivots.',
+            desc_ru: 'Создает материальную точку для физического движка Верле. Закрепленные узлы действуют как неподвижные опоры.',
+            example: 'PhysicsNode("Pivot", 0, 5, true)'
+        },
+        {
+            name: 'PhysicsLink',
+            category: 'physics',
+            syntax: 'PhysicsLink(nodeA, nodeB, length)',
+            desc_en: 'Creates a rigid constraint/spring link between two physical nodes.',
+            desc_ru: 'Создает пружинную связь между двумя физическими узлами.',
+            example: 'PhysicsLink("Pivot", "Mass1", 5)'
+        },
+        {
+            name: 'Fourier',
+            category: 'analysis',
+            syntax: 'Fourier(x_array, y_array)',
+            desc_en: 'Generates DFT epicycle animations that draw the path formed by point arrays.',
+            desc_ru: 'Создает эпициклы на основе ДПФ, которые прорисовывают контур, заданный массивом координат.',
+            example: 'Fourier(x1, y1)'
+        },
+        {
+            name: 'Voronoi',
+            category: 'analysis',
+            syntax: 'Voronoi(x_array, y_array)',
+            desc_en: 'Generates Voronoi cells dynamically from arrays of x and y coordinates.',
+            desc_ru: 'Динамически строит диаграмму Вороного по координатным массивам точек.',
+            example: 'Voronoi(x1, y1)'
+        },
+        {
+            name: 'Delaunay',
+            category: 'analysis',
+            syntax: 'Delaunay(x_array, y_array)',
+            desc_en: 'Renders Delaunay triangulation mesh from coordinate arrays.',
+            desc_ru: 'Строит триангуляцию Делоне по координатным массивам точек.',
+            example: 'Delaunay(x1, y1)'
+        },
+        {
+            name: 'int',
+            category: 'calculus',
+            syntax: 'int(expr, variable, a, b)',
+            desc_en: 'Calculates the definite integral of expr with respect to variable from a to b.',
+            desc_ru: 'Находит определенный интеграл выражения по переменной в пределах от a до b.',
+            example: 'int(x^2, x, 0, 5)'
+        },
+        {
+            name: 'derivative',
+            category: 'calculus',
+            syntax: 'derivative(expr, variable)',
+            desc_en: 'Calculates the analytical symbolic derivative of expr with respect to variable.',
+            desc_ru: 'Находит символьную аналитическую производную выражения по переменной.',
+            example: 'derivative(sin(x), x)'
+        }
+    ];
+
+    $: filteredItems = referenceItems.filter(item => {
+        const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
+        const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            ($locale === 'ru' ? item.desc_ru : item.desc_en).toLowerCase().includes(searchQuery.toLowerCase()) ||
+            item.syntax.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesCategory && matchesSearch;
+    });
+
+    let expandedItem: string | null = null;
+    function toggleExpand(name: string) {
+        if (expandedItem === name) {
+            expandedItem = null;
+        } else {
+            expandedItem = name;
+        }
+    }
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div class="modal-backdrop" transition:fade={{ duration: 200 }} on:click={onClose}>
     <div class="modal-content" transition:scale={{ duration: 200, start: 0.95 }} on:click|stopPropagation>
-        <h2>{$t('tutorial_title')}</h2>
         
-        <div class="carousel">
-            {#key currentStep}
-            <div class="slide" in:fade={{duration: 200}}>
-                <div class="icon">{steps[currentStep].icon}</div>
-                <p class="description">{$t(steps[currentStep].title as any)}</p>
-            </div>
-            {/key}
+        <div class="modal-tabs">
+            <button class="tab-btn" class:active={activeTab === 'guide'} on:click={() => activeTab = 'guide'}>
+                {$t('tab_guide')}
+            </button>
+            <button class="tab-btn" class:active={activeTab === 'reference'} on:click={() => activeTab = 'reference'}>
+                {$t('tab_reference')}
+            </button>
         </div>
 
-        <div class="progress">
-            {#each steps as _, i}
-                <div class="dot" class:active={i === currentStep}></div>
-            {/each}
-        </div>
-
-        <div class="actions">
-            <button class="text-btn" on:click={onClose}>{$t('tutorial_skip')}</button>
-            <div class="nav-btns">
-                {#if currentStep > 0}
-                    <button class="secondary-btn" on:click={prevStep}>{$t('tutorial_prev')}</button>
-                {/if}
-                <button class="primary-btn" on:click={nextStep}>
-                    {currentStep === steps.length - 1 ? $t('tutorial_finish') : $t('tutorial_next')}
-                </button>
+        {#if activeTab === 'guide'}
+            <h2>{$t('tutorial_title')}</h2>
+            
+            <div class="carousel">
+                {#key currentStep}
+                <div class="slide" in:fade={{duration: 200}}>
+                    <div class="icon">{steps[currentStep].icon}</div>
+                    <p class="description">{$t(steps[currentStep].title as any)}</p>
+                </div>
+                {/key}
             </div>
-        </div>
+
+            <div class="progress">
+                {#each steps as _, i}
+                    <div class="dot" class:active={i === currentStep}></div>
+                {/each}
+            </div>
+
+            <div class="actions">
+                <button class="text-btn" on:click={onClose}>{$t('tutorial_skip')}</button>
+                <div class="nav-btns">
+                    {#if currentStep > 0}
+                        <button class="secondary-btn" on:click={prevStep}>{$t('tutorial_prev')}</button>
+                    {/if}
+                    <button class="primary-btn" on:click={nextStep}>
+                        {currentStep === steps.length - 1 ? $t('tutorial_finish') : $t('tutorial_next')}
+                    </button>
+                </div>
+            </div>
+        {:else}
+            <h2>{$t('tab_reference')}</h2>
+            
+            <div class="reference-controls">
+                <input 
+                    type="text" 
+                    placeholder={$t('search_placeholder')} 
+                    bind:value={searchQuery}
+                    class="search-input"
+                />
+                
+                <div class="category-filters">
+                    <button class="filter-btn" class:active={selectedCategory === 'all'} on:click={() => selectedCategory = 'all'}>All</button>
+                    <button class="filter-btn" class:active={selectedCategory === 'geometry'} on:click={() => selectedCategory = 'geometry'}>Geometry</button>
+                    <button class="filter-btn" class:active={selectedCategory === 'physics'} on:click={() => selectedCategory = 'physics'}>Physics</button>
+                    <button class="filter-btn" class:active={selectedCategory === 'analysis'} on:click={() => selectedCategory = 'analysis'}>Analysis</button>
+                    <button class="filter-btn" class:active={selectedCategory === 'calculus'} on:click={() => selectedCategory = 'calculus'}>Calculus</button>
+                </div>
+            </div>
+
+            <div class="reference-list">
+                {#each filteredItems as item}
+                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                    <!-- svelte-ignore a11y-no-static-element-interactions -->
+                    <div class="ref-item" class:expanded={expandedItem === item.name} on:click={() => toggleExpand(item.name)}>
+                        <div class="ref-header">
+                            <span class="ref-name">{item.name}</span>
+                            <span class="ref-syntax">{item.syntax}</span>
+                            <span class="expand-arrow">{expandedItem === item.name ? '▼' : '▶'}</span>
+                        </div>
+                        {#if expandedItem === item.name}
+                            <div class="ref-body" transition:fade={{ duration: 150 }}>
+                                <p class="ref-desc">{$locale === 'ru' ? item.desc_ru : item.desc_en}</p>
+                                <div class="ref-example">
+                                    <span class="example-label">{$t('example_label')}</span>
+                                    <code>{item.example}</code>
+                                </div>
+                            </div>
+                        {/if}
+                    </div>
+                {/each}
+            </div>
+
+            <div class="actions">
+                <button class="primary-btn" on:click={onClose}>{$t('tutorial_skip')}</button>
+            </div>
+        {/if}
     </div>
 </div>
 
@@ -88,8 +325,10 @@
         color: var(--text-primary);
         padding: 32px;
         border-radius: 16px;
-        max-width: 500px;
+        max-width: 600px;
         width: 90%;
+        max-height: 90vh;
+        overflow-y: auto;
         box-shadow: 0 10px 40px rgba(0,0,0,0.2);
         border: 1px solid var(--border-color);
         display: flex;
@@ -99,6 +338,33 @@
         margin-top: 0;
         color: var(--text-primary);
         text-align: center;
+        font-size: 1.5rem;
+    }
+    .modal-tabs {
+        display: flex;
+        border-bottom: 2px solid var(--border-color);
+        margin-bottom: 20px;
+        gap: 16px;
+        justify-content: center;
+    }
+    .tab-btn {
+        background: transparent;
+        border: none;
+        padding: 8px 16px;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: color 0.2s, border-bottom 0.2s;
+        border-bottom: 3px solid transparent;
+        border-radius: 0;
+    }
+    .tab-btn:hover {
+        color: var(--text-primary);
+    }
+    .tab-btn.active {
+        color: var(--accent-color);
+        border-bottom: 3px solid var(--accent-color);
     }
     .carousel {
         min-height: 140px;
@@ -139,6 +405,142 @@
     .dot.active {
         background: var(--accent-color);
         transform: scale(1.3);
+    }
+    .reference-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+    .search-input {
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-surface-hover);
+        color: var(--text-primary);
+        font-size: 0.95rem;
+    }
+    .search-input:focus {
+        outline: none;
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 20%, transparent);
+    }
+    .category-filters {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+    }
+    .filter-btn {
+        padding: 4px 10px;
+        font-size: 0.8rem;
+        border-radius: 20px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-surface);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .filter-btn.active {
+        background: var(--accent-color);
+        color: white;
+        border-color: var(--accent-color);
+    }
+    .reference-list {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 24px;
+        max-height: 300px;
+        padding-right: 4px;
+    }
+    /* Custom scrollbar for list */
+    .reference-list::-webkit-scrollbar {
+        width: 6px;
+    }
+    .reference-list::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .reference-list::-webkit-scrollbar-thumb {
+        background: var(--border-color);
+        border-radius: 3px;
+    }
+    .ref-item {
+        background: var(--bg-surface-hover);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 10px 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        flex-direction: column;
+    }
+    .ref-item:hover {
+        border-color: var(--accent-color);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+    }
+    .ref-item.expanded {
+        border-color: var(--accent-color);
+        background: var(--bg-surface);
+    }
+    .ref-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .ref-name {
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: var(--text-primary);
+        min-width: 80px;
+    }
+    .ref-syntax {
+        font-family: monospace;
+        font-size: 0.85rem;
+        color: var(--accent-color);
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .expand-arrow {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+    .ref-body {
+        margin-top: 10px;
+        border-top: 1px dashed var(--border-color);
+        padding-top: 10px;
+    }
+    .ref-desc {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        line-height: 1.4;
+        margin: 0 0 10px 0;
+        text-align: left;
+    }
+    .ref-example {
+        background: var(--bg-canvas);
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-family: monospace;
+        font-size: 0.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        border-left: 3px solid var(--accent-color);
+        text-align: left;
+    }
+    .example-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+    code {
+        color: var(--text-primary);
     }
     .actions {
         display: flex;

@@ -1,13 +1,13 @@
 <script lang="ts">
     import { camera, expressions } from '../../state/store';
-    import type { CompiledEquation, Camera } from '../../core/types';
+    import type { Expression, CameraState } from '../../core/types';
 
     export let close: () => void;
     let exportMode: 'python' | 'tikz' = 'python';
 
     $: code = generateCode($expressions, $camera, exportMode);
 
-    function generateCode(eqs: CompiledEquation[], cam: Camera, mode: string) {
+    function generateCode(eqs: Expression[], cam: CameraState, mode: string) {
         if (mode === 'python') {
             let py = `import numpy as np\nimport matplotlib.pyplot as plt\n\n`;
             py += `fig, ax = plt.subplots()\n`;

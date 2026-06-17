@@ -88,6 +88,15 @@ export class PhysicsEngine {
   }
 
   /**
+   * @brief Resets the physics engine by clearing all nodes and constraints.
+   */
+  reset() {
+    Logger.info("PhysicsEngine", "Resetting all nodes and constraints.");
+    this.nodes.clear();
+    this.constraints = [];
+  }
+
+  /**
    * @brief Steps the physics simulation forward by a given time step.
    * @param dt Time delta (in seconds).
    * @param iterations Number of constraint relaxation iterations.

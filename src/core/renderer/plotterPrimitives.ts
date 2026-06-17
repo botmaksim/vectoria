@@ -99,24 +99,50 @@ export function plotSegment(
 export function plotLine(
   ctx: CanvasRenderingContext2D,
   camera: Camera,
-  data: { px: number; py: number; dx: number; dy: number },
+  data: any,
   color: string,
   width: number,
   height: number,
   lineWidth: number,
 ) {
+  if (!data) return;
   ctx.strokeStyle = color;
   ctx.lineWidth = lineWidth;
 
   const minMath = camera.screenToMath(0, height, width, height);
   const maxMath = camera.screenToMath(width, 0, width, height);
-  const diag =
-    Math.sqrt((maxMath.x - minMath.x) ** 2 + (maxMath.y - minMath.y) ** 2) * 2;
 
-  const p1X = data.px - data.dx * diag;
-  const p1Y = data.py - data.dy * diag;
-  const p2X = data.px + data.dx * diag;
-  const p2Y = data.py + data.dy * diag;
+  let p1X = 0, p1Y = 0, p2X = 0, p2Y = 0;
+
+  if (typeof data.px === "number" && typeof data.py === "number" && typeof data.dx === "number" && typeof data.dy === "number") {
+    // Vector form
+    const diag = Math.sqrt((maxMath.x - minMath.x) ** 2 + (maxMath.y - minMath.y) ** 2) * 2;
+    const len = Math.sqrt(data.dx * data.dx + data.dy * data.dy);
+    const ndx = len > 0 ? data.dx / len : 1;
+    const ndy = len > 0 ? data.dy / len : 0;
+    p1X = data.px - ndx * diag;
+    p1Y = data.py - ndy * diag;
+    p2X = data.px + ndx * diag;
+    p2Y = data.py + ndy * diag;
+  } else if (typeof data.a === "number" && typeof data.b === "number" && typeof data.c === "number") {
+    // Implicit form a*x + b*y + c = 0
+    const { a, b, c } = data;
+    if (Math.abs(b) > 1e-6) {
+      p1X = minMath.x - 10;
+      p1Y = -(a * p1X + c) / b;
+      p2X = maxMath.x + 10;
+      p2Y = -(a * p2X + c) / b;
+    } else if (Math.abs(a) > 1e-6) {
+      p1X = -c / a;
+      p1Y = minMath.y - 10;
+      p2X = -c / a;
+      p2Y = maxMath.y + 10;
+    } else {
+      return;
+    }
+  } else {
+    return;
+  }
 
   const sp1 = camera.mathToScreen(p1X, p1Y, width, height);
   const sp2 = camera.mathToScreen(p2X, p2Y, width, height);

@@ -20,21 +20,23 @@
     
     {#if !isCollapsed}
     <div class="tools-grid">
-        <button class:active={$activeTool === 'move'} on:click={() => activeTool.setMode('move')} title="Move (Pan/Zoom)"><span class="icon">👆</span><span class="label">Move</span></button>
-        <button class:active={$activeTool === 'point'} on:click={() => activeTool.setMode('point')} title="Point"><span class="icon">📍</span><span class="label">Point</span></button>
-        <button class:active={$activeTool === 'intersect'} on:click={() => activeTool.setMode('intersect')} title="Intersection"><span class="icon">✖</span><span class="label">Intersect</span></button>
-        <button class:active={$activeTool === 'segment'} on:click={() => activeTool.setMode('segment')} title="Segment"><span class="icon">📏</span><span class="label">Segment</span></button>
-        <button class:active={$activeTool === 'line'} on:click={() => activeTool.setMode('line')} title="Line"><span class="icon">➖</span><span class="label">Line</span></button>
-        <button class:active={$activeTool === 'polygon'} on:click={() => activeTool.setMode('polygon')} title="Polygon"><span class="icon">🔺</span><span class="label">Polygon</span></button>
-        <button class:active={$activeTool === 'circle'} on:click={() => activeTool.setMode('circle')} title="Circle"><span class="icon">⭕</span><span class="label">Circle</span></button>
-        <button class:active={$activeTool === 'circle3pts'} on:click={() => activeTool.setMode('circle3pts')} title="Circle (3 Points)"><span class="icon">⨀</span><span class="label">Circle(3pt)</span></button>
-        <button class:active={$activeTool === 'midpoint'} on:click={() => activeTool.setMode('midpoint')} title="Midpoint"><span class="icon">⨁</span><span class="label">Midpoint</span></button>
-        <button class:active={$activeTool === 'perpBisector'} on:click={() => activeTool.setMode('perpBisector')} title="Perpendicular Bisector"><span class="icon">⟂</span><span class="label">Perp. Bisect</span></button>
-        <button class:active={$activeTool === 'perpendicular'} on:click={() => activeTool.setMode('perpendicular')} title="Perpendicular Line (Click Point, then Line)"><span class="icon">⊾</span><span class="label">Perpendicular</span></button>
-        <button class:active={$activeTool === 'angleBisector'} on:click={() => activeTool.setMode('angleBisector')} title="Angle Bisector (Click 3 pts or 2 lines)"><span class="icon">⦜</span><span class="label">Ang. Bisect</span></button>
-        <button class:active={$activeTool === 'tangent'} on:click={() => activeTool.setMode('tangent')} title="Tangent"><span class="icon">↗</span><span class="label">Tangent</span></button>
-        <button class:active={$activeTool === 'ode'} on:click={() => activeTool.setMode('ode')} title="ODE Phase Spawner"><span class="icon">🪢</span><span class="label">ODE</span></button>
-        <button class:active={$activeTool === 'delete'} on:click={() => activeTool.setMode('delete')} title="Delete Element"><span class="icon">🗑️</span><span class="label">Delete</span></button>
+        <button class:active={$activeTool === 'move'} on:click={() => activeTool.setMode('move')} title={$t('tool_move_desc')}><span class="icon">👆</span><span class="label">{$t('tool_move')}</span></button>
+        <button class:active={$activeTool === 'point'} on:click={() => activeTool.setMode('point')} title={$t('tool_point_desc')}><span class="icon">📍</span><span class="label">{$t('tool_point')}</span></button>
+        <button class:active={$activeTool === 'intersect'} on:click={() => activeTool.setMode('intersect')} title={$t('tool_intersect_desc')}><span class="icon">✖</span><span class="label">{$t('tool_intersect')}</span></button>
+        <button class:active={$activeTool === 'segment'} on:click={() => activeTool.setMode('segment')} title={$t('tool_segment_desc')}><span class="icon">📏</span><span class="label">{$t('tool_segment')}</span></button>
+        <button class:active={$activeTool === 'line'} on:click={() => activeTool.setMode('line')} title={$t('tool_line_desc')}><span class="icon">➖</span><span class="label">{$t('tool_line')}</span></button>
+        <button class:active={$activeTool === 'polygon'} on:click={() => activeTool.setMode('polygon')} title={$t('tool_polygon_desc')}><span class="icon">🔺</span><span class="label">{$t('tool_polygon')}</span></button>
+        <button class:active={$activeTool === 'circle'} on:click={() => activeTool.setMode('circle')} title={$t('tool_circle_desc')}><span class="icon">⭕</span><span class="label">{$t('tool_circle')}</span></button>
+        <button class:active={$activeTool === 'circle3pts'} on:click={() => activeTool.setMode('circle3pts')} title={$t('tool_circle3pts_desc')}><span class="icon">⨀</span><span class="label">{$t('tool_circle3pts')}</span></button>
+        <button class:active={$activeTool === 'midpoint'} on:click={() => activeTool.setMode('midpoint')} title={$t('tool_midpoint_desc')}><span class="icon">⨁</span><span class="label">{$t('tool_midpoint')}</span></button>
+        <button class:active={$activeTool === 'perpBisector'} on:click={() => activeTool.setMode('perpBisector')} title={$t('tool_perp_bisect_desc')}><span class="icon">⟂</span><span class="label">{$t('tool_perp_bisect')}</span></button>
+        <button class:active={$activeTool === 'perpendicular'} on:click={() => activeTool.setMode('perpendicular')} title={$t('tool_perpendicular_desc')}><span class="icon">⊾</span><span class="label">{$t('tool_perpendicular')}</span></button>
+        <button class:active={$activeTool === 'parallel'} on:click={() => activeTool.setMode('parallel')} title={$t('tool_parallel_desc')}><span class="icon">∥</span><span class="label">{$t('tool_parallel')}</span></button>
+        <button class:active={$activeTool === 'conic'} on:click={() => activeTool.setMode('conic')} title={$t('tool_conic_desc')}><span class="icon">⬭</span><span class="label">{$t('tool_conic')}</span></button>
+        <button class:active={$activeTool === 'angleBisector'} on:click={() => activeTool.setMode('angleBisector')} title={$t('tool_angle_bisect_desc')}><span class="icon">⦜</span><span class="label">{$t('tool_angle_bisect')}</span></button>
+        <button class:active={$activeTool === 'tangent'} on:click={() => activeTool.setMode('tangent')} title={$t('tool_tangent_desc')}><span class="icon">↗</span><span class="label">{$t('tool_tangent')}</span></button>
+        <button class:active={$activeTool === 'ode'} on:click={() => activeTool.setMode('ode')} title={$t('tool_ode_desc')}><span class="icon">🪢</span><span class="label">{$t('tool_ode')}</span></button>
+        <button class:active={$activeTool === 'delete'} on:click={() => activeTool.setMode('delete')} title={$t('tool_delete_desc')}><span class="icon">🗑️</span><span class="label">{$t('tool_delete')}</span></button>
     </div>
     {/if}
 </div>

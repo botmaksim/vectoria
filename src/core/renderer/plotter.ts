@@ -40,7 +40,7 @@ export interface CompiledEquation {
   ) => { x1: number; y1: number; x2: number; y2: number } | null;
   lineData?: (
     scope: any,
-  ) => { px: number; py: number; dx: number; dy: number } | null;
+  ) => any;
   ellipseData?: (
     scope: any,
   ) => { cx: number; cy: number; rx: number; ry: number } | null;
@@ -155,7 +155,8 @@ export function plotExpressions(
 
   for (const eq of equations) {
     try {
-      if (eq.lineStyle === "dashed") {
+    const isSelected = (eq as any).selected;
+    if (eq.lineStyle === "dashed") {
       ctx.setLineDash([10, 10]);
     } else if (eq.lineStyle === "dotted") {
       ctx.setLineDash([2, 6]);
@@ -163,7 +164,7 @@ export function plotExpressions(
       ctx.setLineDash([]);
     }
 
-    const lw = eq.lineWidth || 2;
+    const lw = (eq.lineWidth || 2) + (isSelected ? 3 : 0);
     const eqScope = eq.glslUniformsScope || scope;
 
     if ((eq.type === "explicit" || eq.type === "regression") && eq.fnExplicit) {
@@ -214,6 +215,20 @@ export function plotExpressions(
             width,
             height,
           );
+        if (isSelected) {
+          const ptsX = data.x?.toArray ? data.x.toArray() : Array.isArray(data.x) ? data.x : [data.x];
+          const ptsY = data.y?.toArray ? data.y.toArray() : Array.isArray(data.y) ? data.y : [data.y];
+          for (let i = 0; i < Math.max(ptsX.length, ptsY.length); i++) {
+            const px = ptsX[i % ptsX.length];
+            const py = ptsY[i % ptsY.length];
+            const screenP = camera.mathToScreen(px, py, width, height);
+            ctx.strokeStyle = "rgba(128, 128, 128, 0.5)";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(screenP.x, screenP.y, 10, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
         plotPoint(ctx, camera, data, eq.color, width, height, eq.pointStyle);
       }
     } else if (eq.type === "parametric" && eq.fnParametric) {
@@ -245,7 +260,12 @@ export function plotExpressions(
       if (data) plotSegment(ctx, camera, data, eq.color, width, height, lw);
     } else if (eq.type === "line" && eq.lineData) {
       const data = eq.lineData(eqScope);
-      if (data) plotLine(ctx, camera, data, eq.color, width, height, lw);
+      if (data) {
+        const lines = Array.isArray(data) ? data : [data];
+        for (const l of lines) {
+          plotLine(ctx, camera, l, eq.color, width, height, lw);
+        }
+      }
     } else if (eq.type === "ellipse" && eq.ellipseData) {
       const data = eq.ellipseData(eqScope);
       if (data) plotEllipse(ctx, camera, data, eq.color, width, height, lw);

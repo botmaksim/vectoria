@@ -6,7 +6,7 @@
      */
 
     import type { Expression } from '../../core/types';
-    import { expressions } from '../../state/store';
+    import { expressions, selectedExpressionId } from '../../state/store';
     import StylePopover from './StylePopover.svelte';
     import { Logger } from '../../utils/logger';
     
@@ -54,7 +54,9 @@
     }
 </script>
 
-<div class="table-container" style="--table-color: {table.color}">
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="table-container" style="--table-color: {table.color}" class:selected={$selectedExpressionId === table.id} on:click={() => selectedExpressionId.set(table.id)}>
     <div class="table-header">
         <div class="col-header">{table.xCol}</div>
         <div class="col-header">
@@ -126,6 +128,11 @@
         overflow: hidden;
         background: var(--bg-surface);
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .table-container.selected {
+        border-color: var(--accent-color);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
     }
     
     .table-header {
