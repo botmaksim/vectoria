@@ -31,7 +31,8 @@ Furthermore, Vectoria strictly elevates mathematical syntax directly into contin
 
 *   **Custom Function Declarations & CAS Reuse:** Declare custom functions using standard syntax (e.g., `f(x) = x^2`) to reuse them dynamically in other expressions, derivatives, integrals, and Nerdamer symbolic computations inside the CAS side panel.
 *   **Fourier Analysis & Epicycles:** Perform a Discrete Fourier Transform (DFT) automatically on any parametric curve or imported scalar dataset using `Fourier(x, y)` to visualize rotational epicycles recursively tracing topography.
-*   **Robust Geometry Solver Engine:** Fully integrated geometry engine supporting `Line`, `Segment`, `Circle`, `Midpoint`, `Parallel`, `Perpendicular`, `PerpendicularBisector`, `AngleBisector`, `Intersect`, `Tangent` (Point to Circle/Ellipse/Function), and 5-point algebraic `Conic` section fitting using recursive 5x5 Laplace determinants.
+*   **Extensible Tool Registry (`ToolRegistry`):** A centralized dynamic store allowing rapid addition of custom tools to the CAS, GeoGebra panel, Functions panel, and Data Tables without modifying UI components.
+*   **Custom Function Generation Context:** Users can register predefined or dynamically written expressions (e.g. `f(x)=sin(x)+x`) instantly as Custom Tools spanning across UI panels (cas, geometry, expressions, tables) with a unified `createCustomToolFromExpression` pipeline.
 *   **Intuitive CAD Interface & Auto-Naming:** Utilize native CAD mouse interaction patterns with automated subscript-based variable naming (e.g., `P_{1}`, `L_{1}`, `c_{1}`, `s_{1}`). Click and drag geometric elements on the canvas to dynamically construct and snap linkages.
 *   **State Auto-Save & Recovery:** Debounced local persistence to `localStorage` automatically saves equations, sliders, folders, and camera coordinates, ensuring instant recovery of the exact workspace editor state on page reload.
 *   **Searchable Function Reference Guide:** Access a comprehensive reference manual directly from the help panel (`❓`), featuring search filters by category and copyable implementation syntax/examples.
@@ -66,23 +67,28 @@ Vectoria is rigidly structured incorporating modular abstraction boundaries adhe
 
 ## 💻 Initialization Instructions
 
-### 1. Requisites Definition
-Evaluate existence of local Node execution resources mapping correctly to Node.JS protocol versions exceeding > `v18.0`.
+Follow these steps to quickly set up and run Vectoria for local development:
 
-### 2. Assembly Directives
-Acquire repository artifacts locally resolving NPM tree dependencies sequentially.
+### 1. Prerequisites
+Ensure you have **Node.js** (version 18.0 or later) installed on your system. 
+
+### 2. Installation
+Clone the repository and install all required dependencies:
+
 ```bash
 git clone https://github.com/your-username/vectoria.git
 cd vectoria
 npm install
 ```
 
-### 3. Subsystem Boot Sequences
-Trigger localized Vite orchestration pipeline rendering runtime logic to hot-reloaded modules.
+### 3. Local Development Server
+Start the local development server using Vite:
+
 ```bash
 npm run dev
 ```
-Route designated browsers explicitly targeting `http://localhost:5173`.
+
+Finally, open your browser and navigate to `http://localhost:5173` to access Vectoria.
 
 ---
 
@@ -106,3 +112,5 @@ Application state becomes resolvable globally facing via mapped default HTTP `ht
 ## 📄 Licensing Information
 
 Authorized under the MIT License distribution model. Verify included `LICENSE` definition mappings.
+
+

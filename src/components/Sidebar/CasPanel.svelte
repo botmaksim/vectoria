@@ -40,6 +40,7 @@
     /**
      * @brief Changes the current CAS operation mode and recomputes the result.
      * @param m The selected operation mode.
+     * @param m:string
      */
     function setMode(m: typeof mode) {
         Logger.info('CasPanel', `Operation mode switched to: ${m}`);

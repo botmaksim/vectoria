@@ -13,6 +13,7 @@
     import { Logger } from '../../utils/logger';
     import { get } from 'svelte/store';
     import { compileExpression } from '../../core/math/evaluator';
+    import { preprocessMathLive } from '../../core/math/transformers';
     import 'mathlive';
 
     export let expression: Expression;
@@ -26,7 +27,7 @@
             mathFieldRef.value = expression.latex;
             mathFieldRef.addEventListener('input', () => {
                 const latex = mathFieldRef.value;
-                const text = mathFieldRef.getValue('ascii-math');
+                const text = preprocessMathLive(mathFieldRef.getValue('ascii-math'));
                 Logger.debug('EquationInput', `User modified expression ${expression.id}: ${text}`);
                 expressions.updateText(expression.id, text, latex);
             });
@@ -68,6 +69,50 @@
             }
         }
     }
+    import { toolsRegistry } from '../../state/toolRegistry';
+    import { parse } from 'mathjs';
+    
+    function createCustomTool(panel: 'cas' | 'geometry' | 'expression' | 'table') {
+        toolsRegistry.createCustomToolFromExpression(panel, expression.id);
+        Logger.info('EquationInput', `Custom tool created and added to ${panel} panel!`);
+    }
+
+    let substitutedResult = '';
+    $: {
+        if (expression.substitutedResult) {
+            substitutedResult = expression.substitutedResult;
+        } else if (expression.type === 'math' && !expression.isText && expression.text) {
+            try {
+                const node = parse(expression.text);
+                const scope: Record<string, any> = {};
+                for (const [k, v] of Object.entries($sliders)) scope[k] = v.value;
+                
+                const parts = expression.text.split('=');
+                let evalNode = node;
+                if (parts.length === 2 && !parts[0].includes('(')) {
+                    evalNode = parse(parts[1]);
+                }
+                
+                const res = evalNode.evaluate(scope);
+                if (typeof res === 'number') {
+                    substitutedResult = '= ' + res.toPrecision(6).replace(/\.0+$/, '').replace(/\.$/, '');
+                } else if (res && (typeof res.toArray === 'function' || Array.isArray(res))) {
+                    const arr = Array.isArray(res) ? res : res.toArray();
+                    if (arr.length === 2 && typeof arr[0] === 'number') {
+                        substitutedResult = `= (${arr[0].toFixed(2)}, ${arr[1].toFixed(2)})`;
+                    } else {
+                        substitutedResult = '= ' + JSON.stringify(arr);
+                    }
+                } else {
+                    substitutedResult = '';
+                }
+            } catch (e) {
+                substitutedResult = '';
+            }
+        } else {
+            substitutedResult = '';
+        }
+    }
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -76,9 +121,12 @@
     <div class="color-indicator-container">
         <button 
             class="color-indicator" 
-            style="background-color: {expression.color}" 
-            on:click={() => showStylePopover = !showStylePopover}
-            aria-label="Open style settings"
+            class:hidden={!expression.visible}
+            style="background-color: {expression.visible ? expression.color : 'transparent'}; border-color: {expression.color}" 
+            on:click={() => expressions.toggleVisible(expression.id)}
+            on:contextmenu|preventDefault={() => showStylePopover = !showStylePopover}
+            aria-label="Toggle visibility. Right click for styles"
+            title="Toggle visibility (Right-click for styles)"
         ></button>
         {#if showStylePopover}
             <StylePopover {expression} onClose={() => showStylePopover = false} />
@@ -98,16 +146,20 @@
         <math-field bind:this={mathFieldRef} class="math-input" placeholder={$t('placeholder')}></math-field>
     {/if}
 
+
+
     {#if expression.text.includes('->')}
         <button on:click={handlePlayAction} class="icon-btn action-btn" aria-label="Execute Action" title="Выполнить действие">▶</button>
     {/if}
 
-    <button on:click={() => expressions.toggleVisible(expression.id)} class="icon-btn" aria-label={expression.visible ? 'Hide expression' : 'Show expression'}>
-        {expression.visible ? '👁' : '🚫'}
-    </button>
-    <button class="icon-btn delete" on:click={() => expressions.removeExpression(expression.id)} aria-label="Delete expression">✖</button>
+    <button class="icon-btn delete" on:click={() => expressions.removeExpression(expression.id)} aria-label="Delete expression" title="Delete">✖</button>
 </div>
 
+{#if substitutedResult}
+<div class="eval-result">
+    {substitutedResult}
+</div>
+{/if}
 {#if expression.regressionParams}
 <div class="regression-stats">
     <div class="stat-header">Статистика</div>
@@ -125,6 +177,7 @@
 
 <style>
     .equation-row {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 8px;
@@ -142,6 +195,10 @@
         border-color: var(--accent-color);
         background-color: color-mix(in srgb, var(--accent-color) 6%, var(--bg-surface));
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        z-index: 20;
+    }
+    .equation-row:hover, .equation-row:focus-within {
+        z-index: 30;
     }
     .equation-row:focus-within {
         border-color: var(--accent-color);
@@ -237,6 +294,15 @@
         color: var(--text-secondary);
         border: 1px solid var(--border-light);
     }
+    .eval-result {
+        margin-left: 36px;
+        margin-top: -8px;
+        margin-bottom: 12px;
+        padding: 2px 8px;
+        font-family: monospace;
+        font-size: 0.95rem;
+        color: var(--text-secondary);
+    }
     .stat-header {
         font-weight: 600;
         font-size: 0.85rem;
@@ -248,5 +314,40 @@
     .stat-row {
         margin-left: 8px;
         margin-bottom: 2px;
+    }
+    .custom-tool-dropdown {
+        position: relative;
+        display: inline-block;
+    }
+    .custom-tool-menu {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: 100%;
+        background-color: var(--bg-surface);
+        min-width: 120px;
+        box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+        z-index: 100;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        overflow: hidden;
+    }
+    .custom-tool-dropdown:hover .custom-tool-menu {
+        display: block;
+    }
+    .custom-tool-menu button {
+        color: var(--text-primary);
+        padding: 8px 12px;
+        text-decoration: none;
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        font-size: 0.8rem;
+    }
+    .custom-tool-menu button:hover {
+        background-color: var(--bg-surface-hover);
     }
 </style>

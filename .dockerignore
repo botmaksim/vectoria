@@ -10,3 +10,5 @@ docs
 CMakeLists.txt
 Doxyfile
 cmake-build-*
+
+coverage/

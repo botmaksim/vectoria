@@ -1,7 +1,7 @@
 /**
  * @file geometryCompiler.ts
  * @brief Parses and compiles geometric and physics configurations into evaluatable runtime objects.
- * @details This module supports point generation, complex parametric objects, physics node extraction (including cloths), and fractals mapping straight to GLSL shaders (Mandelbrot, Julia).
+ * @details This module supports point generation, complex parametric objects, and physics node extraction (including cloths).
  */
 import { parse } from "mathjs";
 import { Logger } from "../../utils/logger";
@@ -91,7 +91,7 @@ export function compileGeometry(
   vars: Set<string>,
 ): CompiledEquationData | null {
   const fourierMatch = exprText.match(
-    /^\s*Fourier\s*\(\s*([^,]+)(?:,\s*([^)]+))?\s*\)\s*$/i,
+    /^\s*Fourier\s*\(\s*(\[[^\]]+\]|[^,]+)(?:,\s*(.+))?\s*\)\s*$/i,
   );
   if (fourierMatch) {
     Logger.debug("GeometryCompiler", "Compiling Fourier representation.");
@@ -105,6 +105,7 @@ export function compileGeometry(
       name,
       type: "fourier",
       vars: Array.from(vars),
+      isTraced: true,
       dataFn: (scope: any) => {
         try {
           let resX = codeX.evaluate(scope);
@@ -125,7 +126,7 @@ export function compileGeometry(
   }
 
   const voronoiMatch = exprText.match(
-    /^\s*Voronoi\s*\(\s*([^,]+)(?:,\s*([^)]+))?\s*\)\s*$/i,
+    /^\s*Voronoi\s*\(\s*(\[[^\]]+\]|[^,]+)(?:,\s*(.+))?\s*\)\s*$/i,
   );
   if (voronoiMatch) {
     Logger.debug("GeometryCompiler", "Compiling Voronoi representation.");
@@ -159,7 +160,7 @@ export function compileGeometry(
   }
 
   const delaunayMatch = exprText.match(
-    /^\s*Delaunay\s*\(\s*([^,]+)(?:,\s*([^)]+))?\s*\)\s*$/i,
+    /^\s*Delaunay\s*\(\s*(\[[^\]]+\]|[^,]+)(?:,\s*(.+))?\s*\)\s*$/i,
   );
   if (delaunayMatch) {
     Logger.debug("GeometryCompiler", "Compiling Delaunay representation.");
@@ -203,19 +204,18 @@ export function compileGeometry(
     const matCode = matNode.compile();
     return {
       name,
-      type: "action",
+      type: "transform",
       vars: Array.from(vars),
-      actionExecute: (scope: any) => {
+      transformExecute: (scope: any) => {
         const m = matCode.evaluate(scope);
-        return {
-          target: "__globalTransform",
-          value: m?.toArray ? m.toArray() : m,
-        };
+        return m?.toArray ? m.toArray() : m;
       },
     };
   }
 
-  const pointMatch = exprText.match(/^\s*\((.+?),(.+?)\)\s*$/);
+  // Match (x, y) or [x, y] point syntax — the inner parts must NOT contain
+  // brackets of either type so that nested arrays like [[a,b],[c,d]] are excluded.
+  const pointMatch = exprText.match(/^\s*[([]([^()[\]]+),([^()[\]]+)[)\]]\s*$/);
   if (pointMatch) {
     Logger.debug("GeometryCompiler", "Compiling point representation.");
     const xNode = parse(pointMatch[1]);
@@ -875,28 +875,32 @@ export function compileGeometry(
     };
   }
 
-  const polyMatch = exprText.match(/^\s*Polygon\s*\((.+)\)\s*$/i);
-  if (polyMatch) {
-    Logger.debug("GeometryCompiler", "Compiling polygon representation.");
-    const args = polyMatch[1].split(",").map((s) => s.trim());
-    const nodes = args.map((arg) => parse(arg));
-    nodes.forEach((n) => extractVars(n, vars));
-    const codes = nodes.map((n) => n.compile());
-    return {
-      name,
-      type: "polygon",
-      vars: Array.from(vars),
-      polygonData: (scope: any) => {
-        return codes
-          .map((c) => {
-            const pt = c.evaluate(scope);
-            if (Array.isArray(pt)) return { x: pt[0], y: pt[1] };
-            if (pt && typeof pt.x === "number") return { x: pt.x, y: pt.y };
-            return null;
-          })
-          .filter(Boolean) as { x: number; y: number }[];
-      },
-    };
+  if (/^\s*Polygon\s*\(/i.test(exprText)) {
+    try {
+      const parsed = parse(exprText);
+      if (parsed.isFunctionNode && parsed.fn.name.toLowerCase() === "polygon") {
+        Logger.debug("GeometryCompiler", "Compiling polygon representation.");
+        const nodes = parsed.args;
+        nodes.forEach((n: any) => extractVars(n, vars));
+        const codes = nodes.map((n: any) => n.compile());
+        return {
+          name,
+          type: "polygon",
+          vars: Array.from(vars),
+          polygonData: (scope: any) => {
+            return codes
+              .map((c: any) => {
+                let pt = c.evaluate(scope);
+                if (pt && typeof pt.toArray === 'function') pt = pt.toArray();
+                if (Array.isArray(pt)) return { x: pt[0], y: pt[1] };
+                if (pt && typeof pt.x === "number") return { x: pt.x, y: pt.y };
+                return null;
+              })
+              .filter(Boolean) as { x: number; y: number }[];
+          },
+        };
+      }
+    } catch (e) {}
   }
 
   const labelMatch = exprText.match(
@@ -926,30 +930,8 @@ export function compileGeometry(
     };
   }
 
-  const vectorFieldMatch = exprText.match(
-    /^\s*VectorField\s*\(\s*(.+?)\s*,\s*(.+?)\s*\)\s*$/i,
-  );
-  if (vectorFieldMatch) {
-    Logger.debug("GeometryCompiler", "Compiling VectorField representation.");
-    const uNode = parse(vectorFieldMatch[1]);
-    const vNode = parse(vectorFieldMatch[2]);
-    extractVars(uNode, vars);
-    extractVars(vNode, vars);
-    const uCode = uNode.compile();
-    const vCode = vNode.compile();
-    return {
-      name,
-      type: "vectorField",
-      vars: Array.from(vars),
-      vectorData: (x: number, y: number, scope: any) => ({
-        dx: uCode.evaluate({ ...scope, x, y }),
-        dy: vCode.evaluate({ ...scope, x, y }),
-      }),
-    };
-  }
-
   const physNodeMatch = exprText.match(
-    /^\s*PhysicsNode\s*\(\s*["'](.+?)["']\s*,\s*(.+?)\s*,\s*(.+?)\s*(?:,\s*(true|false)\s*)?\)\s*$/i,
+    /^\s*PhysicsNode\s*\(\s*["']?([\w-]+)["']?\s*,\s*(.+?)\s*,\s*(.+?)\s*(?:,\s*(true|false)\s*)?\)\s*$/i,
   );
   if (physNodeMatch) {
     Logger.debug("GeometryCompiler", "Compiling PhysicsNode representation.");
@@ -975,7 +957,7 @@ export function compileGeometry(
   }
 
   const physLinkMatch = exprText.match(
-    /^\s*PhysicsLink\s*\(\s*["'](.+?)["']\s*,\s*["'](.+?)["']\s*,\s*(.+?)\s*\)\s*$/i,
+    /^\s*PhysicsLink\s*\(\s*["']?([\w-]+)["']?\s*,\s*["']?([\w-]+)["']?\s*,\s*(.+?)\s*\)\s*$/i,
   );
   if (physLinkMatch) {
     Logger.debug("GeometryCompiler", "Compiling PhysicsLink representation.");
@@ -996,135 +978,106 @@ export function compileGeometry(
     };
   }
 
-  const clothMatch = exprText.match(
-    /^\s*PhysicsCloth\s*\(\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s*\)\s*$/i,
-  );
-  if (clothMatch) {
-    Logger.debug("GeometryCompiler", "Compiling PhysicsCloth representation.");
-    const startX = parse(clothMatch[1]).compile();
-    const startY = parse(clothMatch[2]).compile();
-    const rows = parse(clothMatch[3]).compile();
-    const cols = parse(clothMatch[4]).compile();
-    const spacing = parse(clothMatch[5]).compile();
+  if (/^\s*PhysicsCloth\s*\(/i.test(exprText)) {
+    try {
+      const parsed = parse(exprText);
+      if (parsed.isFunctionNode && parsed.fn.name.toLowerCase() === "physicscloth") {
+        Logger.debug("GeometryCompiler", "Compiling PhysicsCloth representation.");
+        const args = parsed.args;
+        if (args.length >= 5) {
+          const startX = args[0].compile();
+          const startY = args[1].compile();
+          const rows = args[2].compile();
+          const cols = args[3].compile();
+          const spacing = args[4].compile();
+          
+          const pinnedNodesArgs = args.slice(5).map((a: any) => a.compile());
 
-    return {
-      name,
-      type: "physicsNode",
-      vars: [],
-      physicsData: (scope: any) => {
-        const sx = startX.evaluate(scope);
-        const sy = startY.evaluate(scope);
-        const r = rows.evaluate(scope);
-        const c = cols.evaluate(scope);
-        const sp = spacing.evaluate(scope);
-        const items: any[] = [];
-        for (let i = 0; i < r; i++) {
-          for (let j = 0; j < c; j++) {
-            items.push({
-              id: `cloth_${i}_${j}`,
-              x: sx + j * sp,
-              y: sy - i * sp,
-              pinned: i === 0,
-            });
-            if (i > 0)
-              items.push({
-                nodeA: `cloth_${i}_${j}`,
-                nodeB: `cloth_${i - 1}_${j}`,
-                length: sp,
-              });
-            if (j > 0)
-              items.push({
-                nodeA: `cloth_${i}_${j}`,
-                nodeB: `cloth_${i}_${j - 1}`,
-                length: sp,
-              });
-          }
+          return {
+            name,
+            type: "physicsNode",
+            vars: [],
+            physicsData: (scope: any) => {
+              const sx = startX.evaluate(scope);
+              const sy = startY.evaluate(scope);
+              const r = rows.evaluate(scope);
+              const c = cols.evaluate(scope);
+              const sp = spacing.evaluate(scope);
+              
+              const pinnedPairs: {pi: number, pj: number}[] = [];
+              for (let i = 0; i < pinnedNodesArgs.length; i += 2) {
+                if (i + 1 < pinnedNodesArgs.length) {
+                  pinnedPairs.push({
+                    pi: pinnedNodesArgs[i].evaluate(scope),
+                    pj: pinnedNodesArgs[i + 1].evaluate(scope)
+                  });
+                }
+              }
+
+              const items: any[] = [];
+              for (let i = 0; i < r; i++) {
+                for (let j = 0; j < c; j++) {
+                  const isPinned = pinnedPairs.some(p => p.pi === i && p.pj === j);
+                  items.push({
+                    id: `cloth_${i}_${j}`,
+                    x: sx + j * sp,
+                    y: sy - i * sp,
+                    pinned: isPinned,
+                  });
+                  if (i > 0)
+                    items.push({
+                      nodeA: `cloth_${i}_${j}`,
+                      nodeB: `cloth_${i - 1}_${j}`,
+                      length: sp,
+                    });
+                  if (j > 0)
+                    items.push({
+                      nodeA: `cloth_${i}_${j}`,
+                      nodeB: `cloth_${i}_${j - 1}`,
+                      length: sp,
+                    });
+                }
+              }
+              return items;
+            },
+          };
         }
-        return items;
-      },
-    };
+      }
+    } catch (e) {
+      console.error("Error compiling PhysicsCloth:", e);
+    }
   }
 
-  const mandelbrotMatch = exprText.match(
-    /^\s*Mandelbrot\s*\(\s*(.*)\s*\)\s*$/i,
-  );
-  if (mandelbrotMatch) {
-    Logger.debug("GeometryCompiler", "Compiling Mandelbrot set.");
-    let iters = mandelbrotMatch[1].trim();
-    if (!iters) iters = "100";
+  const vectorFieldMatch = exprText.match(/^\s*(?:VectorField|ODE)\s*\(\s*(.+?)\s*,\s*(.+?)\s*\)\s*$/i);
+  if (vectorFieldMatch) {
+    Logger.debug("GeometryCompiler", "Compiling VectorField / ODE.");
+    const dxNode = parse(vectorFieldMatch[1]);
+    const dyNode = parse(vectorFieldMatch[2]);
+    extractVars(dxNode, vars);
+    extractVars(dyNode, vars);
+    vars.delete("x");
+    vars.delete("y");
+    const dxCode = dxNode.compile();
+    const dyCode = dyNode.compile();
     return {
       name,
-      type: "inequality",
-      operator: "<",
-      vars: [],
-      glslExpr: `
-                vec2 z = vec2(0.0);
-                vec2 c = vec2(x, y);
-                float inside = -1.0;
-                for(int i = 0; i < ${parseInt(iters, 10)}; i++) {
-                    z = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
-                    if(dot(z, z) > 4.0) {
-                        inside = 1.0;
-                        break;
-                    }
-                }
-                return inside;
-            `,
-    };
-  }
-
-  const juliaMatch = exprText.match(
-    /^\s*Julia\s*\(\s*(.+?)\s*,\s*(.+?)\s*(?:,\s*(.+?))?\s*\)\s*$/i,
-  );
-  if (juliaMatch) {
-    Logger.debug("GeometryCompiler", "Compiling Julia set.");
-    const cxNode = parse(juliaMatch[1]);
-    const cyNode = parse(juliaMatch[2]);
-    const iters = juliaMatch[3] ? juliaMatch[3].trim() : "100";
-
-    extractVars(cxNode, vars);
-    extractVars(cyNode, vars);
-
-    const cxCode = cxNode.compile();
-    const cyCode = cyNode.compile();
-
-    return {
-      name,
-      type: "inequality",
-      operator: "<",
+      type: "vectorField",
       vars: Array.from(vars),
-      glslUniforms: ["u_julia_cx", "u_julia_cy"],
-      fnImplicit: (x: number, y: number, scope: any) => {
-        scope.u_julia_cx = cxCode.evaluate(scope);
-        scope.u_julia_cy = cyCode.evaluate(scope);
-        return -1;
-      },
-      glslExpr: `
-                vec2 z = vec2(x, y);
-                vec2 c = vec2(u_julia_cx, u_julia_cy);
-                float inside = -1.0;
-                for(int i = 0; i < ${parseInt(iters, 10)}; i++) {
-                    z = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
-                    if(dot(z, z) > 4.0) {
-                        inside = 1.0;
-                        break;
-                    }
-                }
-                return inside;
-            `,
+      vectorData: (x: number, y: number, scope: any) => ({
+        dx: dxCode.evaluate({ ...scope, x, y }),
+        dy: dyCode.evaluate({ ...scope, x, y })
+      })
     };
   }
 
-  const conicMatch = exprText.match(
-    /^\s*Conic\s*\(\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s*\)\s*$/i,
-  );
-  if (conicMatch) {
-    Logger.debug("GeometryCompiler", "Compiling Conic representation.");
-    const aNode = parse(conicMatch[1]);
-    const bNode = parse(conicMatch[2]);
-    const cNode = parse(conicMatch[3]);
-    const dNode = parse(conicMatch[4]);
-    const eNode = parse(conicMatch[5]);
+
+
+  if (/^\s*Conic\s*\(/i.test(exprText)) {
+    try {
+      const parsed = parse(exprText);
+      if (parsed.isFunctionNode && parsed.fn.name.toLowerCase() === "conic" && parsed.args.length === 5) {
+        Logger.debug("GeometryCompiler", "Compiling Conic representation.");
+        const [aNode, bNode, cNode, dNode, eNode] = parsed.args;
     extractVars(aNode, vars);
     extractVars(bNode, vars);
     extractVars(cNode, vars);
@@ -1135,60 +1088,48 @@ export function compileGeometry(
     const cCode = cNode.compile();
     const dCode = dNode.compile();
     const eCode = eNode.compile();
+    const getConicData = (scope: any) => {
+      const p1 = aCode.evaluate(scope);
+      const p2 = bCode.evaluate(scope);
+      const p3 = cCode.evaluate(scope);
+      const p4 = dCode.evaluate(scope);
+      const p5 = eCode.evaluate(scope);
+      const parsePt = (p: any) => {
+        if (p && typeof p.toArray === 'function') p = p.toArray();
+        if (Array.isArray(p)) return { x: p[0], y: p[1] };
+        if (p && typeof p.x === "number") return { x: p.x, y: p.y };
+        return null;
+      };
+      const pt1 = parsePt(p1), pt2 = parsePt(p2), pt3 = parsePt(p3), pt4 = parsePt(p4), pt5 = parsePt(p5);
+      if (pt1 && pt2 && pt3 && pt4 && pt5) {
+        const mat = [pt1, pt2, pt3, pt4, pt5].map(p => [p.x * p.x, p.x * p.y, p.y * p.y, p.x, p.y, 1]);
+        const getSub = (ci: number) => mat.map(row => row.filter((_, idx) => idx !== ci));
+        const cofs = [
+          determinant(getSub(0)), -determinant(getSub(1)), determinant(getSub(2)),
+          -determinant(getSub(3)), determinant(getSub(4)), -determinant(getSub(5))
+        ];
+        return { a: cofs[0], b: cofs[1], c: cofs[2], d: cofs[3], e: cofs[4], f: cofs[5] };
+      }
+      return null;
+    };
+
     return {
       name,
       type: "implicit",
       vars: Array.from(vars),
       glslUniforms: ["u_conic_a", "u_conic_b", "u_conic_c", "u_conic_d", "u_conic_e", "u_conic_f"],
+      conicData: getConicData,
       fnImplicit: (x: number, y: number, scope: any) => {
-        const p1 = aCode.evaluate(scope);
-        const p2 = bCode.evaluate(scope);
-        const p3 = cCode.evaluate(scope);
-        const p4 = dCode.evaluate(scope);
-        const p5 = eCode.evaluate(scope);
-        const parsePt = (p: any) => {
-          if (Array.isArray(p)) return { x: p[0], y: p[1] };
-          if (p && typeof p.x === "number") return { x: p.x, y: p.y };
-          return null;
-        };
-        const pt1 = parsePt(p1);
-        const pt2 = parsePt(p2);
-        const pt3 = parsePt(p3);
-        const pt4 = parsePt(p4);
-        const pt5 = parsePt(p5);
-        if (pt1 && pt2 && pt3 && pt4 && pt5) {
-          const pts = [pt1, pt2, pt3, pt4, pt5];
-          const mat = pts.map(p => [
-            p.x * p.x,
-            p.x * p.y,
-            p.y * p.y,
-            p.x,
-            p.y,
-            1
-          ]);
-          const getSub = (colIndex: number) => {
-            return mat.map(row => row.filter((_, idx) => idx !== colIndex));
-          };
-          const cofs = [
-            determinant(getSub(0)),
-            -determinant(getSub(1)),
-            determinant(getSub(2)),
-            -determinant(getSub(3)),
-            determinant(getSub(4)),
-            -determinant(getSub(5))
-          ];
-          scope.u_conic_a = cofs[0];
-          scope.u_conic_b = cofs[1];
-          scope.u_conic_c = cofs[2];
-          scope.u_conic_d = cofs[3];
-          scope.u_conic_e = cofs[4];
-          scope.u_conic_f = cofs[5];
-          return cofs[0] * x * x + cofs[1] * x * y + cofs[2] * y * y + cofs[3] * x + cofs[4] * y + cofs[5];
+        let cd = scope.__conic_cache || getConicData(scope);
+        if (cd) {
+          return cd.a * x * x + cd.b * x * y + cd.c * y * y + cd.d * x + cd.e * y + cd.f;
         }
         return NaN;
       },
       glslExpr: "u_conic_a * x * x + u_conic_b * x * y + u_conic_c * y * y + u_conic_d * x + u_conic_e * y + u_conic_f",
     };
+      }
+    } catch (e) {}
   }
 
   return null;

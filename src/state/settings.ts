@@ -1,38 +1,32 @@
 import { writable } from 'svelte/store';
 import { Logger } from '../utils/logger';
 
-export type GridType = 'cartesian' | 'polar';
+export type GridType = 'cartesian' | 'polar' | 'none';
 
 export interface SettingsState {
+    theme: string;
     gridType: GridType;
-    domainColoring: boolean;
 }
 
 function createSettingsStore() {
     const { subscribe, set, update } = writable<SettingsState>({
-        gridType: 'cartesian',
-        domainColoring: false
+        theme: 'light',
+        gridType: 'cartesian'
     });
 
     return {
         subscribe,
-        toggleGrid: () => {
+        toggleGridType: () => {
             update(state => {
-                const newGrid = state.gridType === 'cartesian' ? 'polar' : 'cartesian';
-                Logger.info('Settings', `Toggled grid type to: ${newGrid}`);
-                return { ...state, gridType: newGrid };
+                const types: ('cartesian' | 'polar' | 'none')[] = ['cartesian', 'polar', 'none'];
+                const nextType = types[(types.indexOf(state.gridType) + 1) % types.length];
+                Logger.debug('SettingsStore', `Toggled Grid Type: ${nextType}`);
+                return { ...state, gridType: nextType };
             });
         },
         setGrid: (gridType: GridType) => {
             Logger.info('Settings', `Set grid type to: ${gridType}`);
             update(state => ({ ...state, gridType }));
-        },
-        toggleDomainColoring: () => {
-            update(state => {
-                const newMode = !state.domainColoring;
-                Logger.info('Settings', `Toggled Domain Coloring to: ${newMode}`);
-                return { ...state, domainColoring: newMode };
-            });
         },
         set
     };

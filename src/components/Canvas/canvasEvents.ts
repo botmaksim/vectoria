@@ -17,6 +17,13 @@ import { activeTool } from '../../state/tools';
  * @param lastScope Current evaluation scope.
  * @param state General canvas state.
  * @param actions Callbacks to the canvas component.
+ * @param e:PointerEvent
+ * @param canvas:HTMLCanvasElement
+ * @param cam:any
+ * @param lastEquationsToDraw:any
+ * @param lastScope:any
+ * @param state:any
+ * @param actions:any
  */
 export function handleCanvasPointerDown(
     e: PointerEvent,

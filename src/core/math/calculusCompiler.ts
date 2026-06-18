@@ -5,7 +5,7 @@
  */
 import { parse } from "mathjs";
 import { Logger } from "../../utils/logger";
-import { extractVars, transformDerivatives } from "./transformers";
+import { extractVars, transformDerivatives, substituteCustomFunctions } from "./transformers";
 import type { CompiledEquationData } from "./evaluator";
 
 /**
@@ -19,13 +19,18 @@ export function compileCalculusAndRegression(
   exprText: string,
   name: string | undefined,
   vars: Set<string>,
+  customFunctions?: Record<string, { param: string; body: string }>,
 ): CompiledEquationData | null {
   const intMatch = exprText.match(
     /^\s*int\s*\(\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s*\)\s*$/,
   );
   if (intMatch) {
     Logger.debug("CalculusCompiler", "Compiling integral representation.");
-    const fNode = transformDerivatives(parse(intMatch[1]));
+    let fNode = transformDerivatives(parse(intMatch[1]));
+    // Inline user-defined functions (e.g. h(x) = f(g(x))) before compiling.
+    if (customFunctions) {
+      fNode = substituteCustomFunctions(fNode, customFunctions);
+    }
     const aNode = transformDerivatives(parse(intMatch[2]));
     const bNode = transformDerivatives(parse(intMatch[3]));
     extractVars(fNode, vars);
@@ -88,7 +93,11 @@ export function compileCalculusAndRegression(
 
           const params: Record<string, number> = {};
           for (const v of allVars) {
-            if (scope[v] === undefined) params[v] = 1.0;
+            if (v === 't') continue;
+            const val = scope[v];
+            if (val === undefined || (!Array.isArray(val) && !val?.toArray)) {
+              params[v] = val !== undefined ? val : 1.0;
+            }
           }
 
           const unknownKeys = Object.keys(params);

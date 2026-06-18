@@ -39,7 +39,16 @@ export function drawGrid(
 
   if (gridType === "polar") {
     const origin = camera.mathToScreen(0, 0, width, height);
-    const maxRadiusScreen = Math.max(width, height);
+    
+    const corners = [
+        {x: 0, y: 0}, {x: width, y: 0}, {x: 0, y: height}, {x: width, y: height}
+    ];
+    let maxRadiusScreen = 0;
+    for (let c of corners) {
+        let dx = c.x - origin.x;
+        let dy = c.y - origin.y;
+        maxRadiusScreen = Math.max(maxRadiusScreen, Math.sqrt(dx*dx + dy*dy));
+    }
     const maxRadiusMath = maxRadiusScreen / camera.state.zoom;
 
     ctx.beginPath();
@@ -51,19 +60,17 @@ export function drawGrid(
     }
     ctx.stroke();
 
-    ctx.strokeStyle = colors.major;
+    ctx.strokeStyle = colors.minor;
     for (let r = step; r < maxRadiusMath + step; r += step) {
       ctx.beginPath();
       ctx.arc(origin.x, origin.y, r * camera.state.zoom, 0, 2 * Math.PI);
       ctx.stroke();
 
-      if (r % (step * 5) < 1e-5) {
-        ctx.fillText(
-          Number(r.toPrecision(3)).toString(),
-          origin.x + r * camera.state.zoom + 2,
-          origin.y - 2,
-        );
-      }
+      ctx.fillText(
+        Number(r.toPrecision(3)).toString(),
+        origin.x + r * camera.state.zoom + 2,
+        origin.y - 2,
+      );
     }
     return;
   }
@@ -85,39 +92,48 @@ export function drawGrid(
   ctx.fillStyle = colors.text;
 
   ctx.strokeStyle = colors.minor;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = colors.minor;
   ctx.beginPath();
+  
+  const minMathY = camera.screenToMath(0, height, width, height).y;
+  const maxMathY = camera.screenToMath(0, 0, width, height).y;
+  const minMathX = camera.screenToMath(0, height, width, height).x;
+  const maxMathX = camera.screenToMath(width, 0, width, height).x;
 
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   for (let x = startX; x <= maxMath.x; x += stepX) {
-    const fixedX = parseFloat(x.toPrecision(10));
-    const screenX = camera.mathToScreen(fixedX, 0, width, height).x;
-    ctx.moveTo(screenX, 0);
-    ctx.lineTo(screenX, height);
+    let fixedX = parseFloat(x.toPrecision(10));
+    if (Math.abs(fixedX) < 1e-10) fixedX = 0;
+    const p1 = camera.mathToScreen(fixedX, minMathY - (maxMathY - minMathY), width, height);
+    const p2 = camera.mathToScreen(fixedX, maxMathY + (maxMathY - minMathY), width, height);
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
 
     if (fixedX !== 0) {
-      const labelY = Math.min(
-        Math.max(camera.mathToScreen(0, 0, width, height).y + 5, 0),
-        height - 20,
-      );
-      ctx.fillText(fixedX.toString(), screenX, labelY);
+      const origin = camera.mathToScreen(0, 0, width, height);
+      const labelY = Math.min(Math.max(origin.y + 5, 0), height - 20);
+      const labelP = camera.mathToScreen(fixedX, 0, width, height);
+      ctx.fillText(fixedX.toString(), labelP.x, labelY);
     }
   }
 
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   for (let y = startY; y <= maxMath.y; y += stepY) {
-    const fixedY = parseFloat(y.toPrecision(10));
-    const screenY = camera.mathToScreen(0, fixedY, width, height).y;
-    ctx.moveTo(0, screenY);
-    ctx.lineTo(width, screenY);
+    let fixedY = parseFloat(y.toPrecision(10));
+    if (Math.abs(fixedY) < 1e-10) fixedY = 0;
+    const p1 = camera.mathToScreen(minMathX - (maxMathX - minMathX), fixedY, width, height);
+    const p2 = camera.mathToScreen(maxMathX + (maxMathX - minMathX), fixedY, width, height);
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
 
     if (fixedY !== 0) {
-      const labelX = Math.min(
-        Math.max(camera.mathToScreen(0, 0, width, height).x - 5, 20),
-        width,
-      );
-      ctx.fillText(fixedY.toString(), labelX, screenY);
+      const origin = camera.mathToScreen(0, 0, width, height);
+      const labelX = Math.min(Math.max(origin.x - 5, 20), width);
+      const labelP = camera.mathToScreen(0, fixedY, width, height);
+      ctx.fillText(fixedY.toString(), labelX, labelP.y);
     }
   }
   ctx.stroke();
@@ -126,18 +142,20 @@ export function drawGrid(
   ctx.strokeStyle = colors.major;
   ctx.beginPath();
 
-  const originScreen = camera.mathToScreen(0, 0, width, height);
-  if (originScreen.y >= 0 && originScreen.y <= height) {
-    ctx.moveTo(0, originScreen.y);
-    ctx.lineTo(width, originScreen.y);
-  }
-  if (originScreen.x >= 0 && originScreen.x <= width) {
-    ctx.moveTo(originScreen.x, 0);
-    ctx.lineTo(originScreen.x, height);
-  }
+  // Draw X axis
+  const xAxisP1 = camera.mathToScreen(minMathX - (maxMathX - minMathX), 0, width, height);
+  const xAxisP2 = camera.mathToScreen(maxMathX + (maxMathX - minMathX), 0, width, height);
+  ctx.moveTo(xAxisP1.x, xAxisP1.y);
+  ctx.lineTo(xAxisP2.x, xAxisP2.y);
+  // Draw Y axis
+  const yAxisP1 = camera.mathToScreen(0, minMathY - (maxMathY - minMathY), width, height);
+  const yAxisP2 = camera.mathToScreen(0, maxMathY + (maxMathY - minMathY), width, height);
+  ctx.moveTo(yAxisP1.x, yAxisP1.y);
+  ctx.lineTo(yAxisP2.x, yAxisP2.y);
   ctx.stroke();
 
   ctx.textAlign = "right";
   ctx.textBaseline = "top";
+  const originScreen = camera.mathToScreen(0, 0, width, height);
   ctx.fillText("0", originScreen.x - 5, originScreen.y + 5);
 }

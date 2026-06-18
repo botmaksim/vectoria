@@ -79,7 +79,7 @@ function sampleRecursive(
 }
 
 /**
- * @brief Renders an explicit mathematical function using adaptive resolution sampling.
+ * @brief Renders an explicit mathematical function using adaptive curvature sampling (2nd derivative).
  */
 export function plotAdaptive(
   ctx: CanvasRenderingContext2D,
@@ -119,37 +119,24 @@ export function plotAdaptive(
     const minMath = camera.screenToMath(0, height, width, height);
     const maxMath = camera.screenToMath(width, 0, width, height);
 
-    const segments = 100;
-    const dx = (maxMath.x - minMath.x) / segments;
-
+    let x = minMath.x;
     let isFirst = true;
 
-    for (let i = 0; i < segments; i++) {
-      const x1 = minMath.x + i * dx;
-      const x2 = minMath.x + (i + 1) * dx;
-      const y1 = localFn(x1, scope);
-      const y2 = localFn(x2, scope);
-
-      if (isNaN(y1) || isNaN(y2)) {
-        isFirst = true;
-        continue;
-      }
-
-      sampleRecursive(
-        ctx,
-        camera,
-        localFn,
-        scope,
-        x1,
-        y1,
-        x2,
-        y2,
-        width,
-        height,
-        isFirst,
-        0,
-      );
-      isFirst = false;
+    // Base eps for derivative
+    // Target pixel error
+    const tolerance = 0.5 / camera.state.zoom;
+    
+    // Evaluate across the screen at regular intervals, then recursively subdivide
+    const intervals = 200; // base resolution
+    const dx = (maxMath.x - minMath.x) / intervals;
+    
+    for (let i = 0; i < intervals; i++) {
+        const x1 = minMath.x + i * dx;
+        const x2 = minMath.x + (i + 1) * dx;
+        const y1 = localFn(x1, scope);
+        const y2 = localFn(x2, scope);
+        
+        sampleRecursive(ctx, camera, localFn, scope, x1, y1, x2, y2, width, height, i === 0, 0);
     }
 
     ctx.stroke();

@@ -106,9 +106,7 @@ export function plotLine(
   lineWidth: number,
 ) {
   if (!data) return;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = lineWidth;
-
+  
   const minMath = camera.screenToMath(0, height, width, height);
   const maxMath = camera.screenToMath(width, 0, width, height);
 
@@ -147,6 +145,8 @@ export function plotLine(
   const sp1 = camera.mathToScreen(p1X, p1Y, width, height);
   const sp2 = camera.mathToScreen(p2X, p2Y, width, height);
 
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
   ctx.beginPath();
   ctx.moveTo(sp1.x, sp1.y);
   ctx.lineTo(sp2.x, sp2.y);

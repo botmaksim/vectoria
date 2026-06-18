@@ -4,6 +4,7 @@
  *
  * Provides global routines for Discrete Fourier Transforms, Voronoi partitions
  * and Delaunay triangulations integrated with the HTML5 Canvas environment.
+ * @param t
  */
 import type { Camera } from "./camera";
 import { Delaunay } from "d3-delaunay";
@@ -123,6 +124,7 @@ export function plotFourier(
  * @brief Flattens structural multi-format data arrays into sequential coordinate arrays.
  * @param dataList Array of mapped point data structures.
  * @return Flattended geometry array for layout algorithms.
+ * @param dataList:any
  */
 function processPoints(dataList: any[]) {
   let flatPts: number[] = [];
@@ -144,6 +146,12 @@ function processPoints(dataList: any[]) {
  * @param color Stroke color.
  * @param width Canvas width in pixels.
  * @param height Canvas height in pixels.
+ * @param ctx:CanvasRenderingContext2D
+ * @param camera:Camera
+ * @param dataList:any
+ * @param color:string
+ * @param width:number
+ * @param height:number
  */
 export function plotVoronoi(
   ctx: CanvasRenderingContext2D,

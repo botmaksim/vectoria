@@ -10,7 +10,7 @@
     import { Camera } from '../../core/renderer/camera';
     import { compileExpression, type EquationType, type CompiledEquationData } from '../../core/math/evaluator';
     import { WebGLRenderer } from '../../core/renderer/webglRenderer';
-    import { activeTool, odeSpawners } from '../../state/tools';
+    import { activeTool } from '../../state/tools';
     import { settings } from '../../state/settings';
     import { isRecording, startRecordingTrigger, stopRecordingTrigger } from '../../state/recorder';
     import { compilerPool } from '../../core/workers/workerPool';
@@ -125,11 +125,15 @@
             if (assignMatch && !["y", "x", "r", "f(x)"].includes(assignMatch[1].trim())) {
                 customNames.add(assignMatch[1].trim());
             }
+            if (expr.type === 'table') {
+                if (expr.xCol) customNames.add(expr.xCol);
+                if (expr.yCol) customNames.add(expr.yCol);
+            }
         }
 
         // 3. Compile expressions and extract variables (filter out defined ones)
         for (const expr of $expressions) {
-            const compiled = compileExpression(expr.text, customFunctions, $settings.domainColoring, customNames);
+            const compiled = compileExpression(expr.text, customFunctions, customNames);
             if (compiled && compiled.vars) {
                 compiled.vars.forEach(v => {
                     if (!customNames.has(v) && v !== 't') {
@@ -226,6 +230,7 @@
             const dt = (timestamp - lastTime) / 1000;
             lastTime = timestamp;
             
+            cam.setTransform([[1, 0], [0, 1]]); // Reset transform for new frame
             sliders.tickAnimations(dt);
             
             if ($timeState.isPlaying) {
@@ -315,12 +320,12 @@
 
                     let cached = compiledCache.get(expr.id);
                     // Also invalidate cache if domainColoring changed
-                    if (!cached || cached.text !== expr.text || (cached as any).domainColoring !== $settings.domainColoring) {
-                        const compiled = compileExpression(expr.text, customFunctions, $settings.domainColoring, customNames);
+                    if (!cached || cached.text !== expr.text ) {
+                        const compiled = compileExpression(expr.text, customFunctions, customNames);
                         cached = {
                             text: expr.text,
                             data: compiled,
-                            domainColoring: $settings.domainColoring
+                            
                         };
                         compiledCache.set(expr.id, cached);
                         
@@ -329,7 +334,7 @@
                             compilerPool.compileGLSLAsync(
                                 expr.id,
                                 expr.text,
-                                $settings.domainColoring,
+                                false, // isComplex
                                 customFunctions,
                                 Array.from(customNames)
                             )
@@ -378,15 +383,18 @@
                                     segmentData: cached!.data.segmentData ? (s) => cached!.data!.segmentData!(instanceScope) : undefined,
                                     polygonData: cached!.data.polygonData ? (s) => cached!.data!.polygonData!(instanceScope) : undefined,
                                     circleData: cached!.data.circleData ? (s) => cached!.data!.circleData!(instanceScope) : undefined,
+                                    conicData: cached!.data.conicData ? (s) => cached!.data!.conicData!(instanceScope) : undefined,
                                     labelData: cached!.data.labelData ? (s) => cached!.data!.labelData!(instanceScope) : undefined,
                                     constantValue: cached!.data.constantValue ? (s) => cached!.data!.constantValue!(instanceScope) : undefined,
                                     dataFn: cached!.data.dataFn ? (s) => cached!.data!.dataFn!(instanceScope) : undefined,
                                     lineData: cached!.data.lineData ? (s) => cached!.data!.lineData!(instanceScope) : undefined,
                                     actionExecute: cached!.data.actionExecute ? (s) => cached!.data!.actionExecute!(instanceScope) : undefined,
+                                    transformExecute: cached!.data.transformExecute ? (s) => cached!.data!.transformExecute!(instanceScope) : undefined,
                                     lineWidth: expr.lineWidth,
                                     lineStyle: expr.lineStyle,
                                     pointStyle: expr.pointStyle,
-                                    glslUniformsScope: instanceScope // We'll pass this special property for WebGL to use
+                                    glslUniformsScope: instanceScope, // We'll pass this special property for WebGL to use
+                                    _substitutedResult: expr.substitutedResult
                                 });
                             }
                         } else {
@@ -396,7 +404,8 @@
                                 color: expr.color,
                                 lineWidth: expr.lineWidth,
                                 lineStyle: expr.lineStyle,
-                                pointStyle: expr.pointStyle
+                                pointStyle: expr.pointStyle,
+                                _substitutedResult: expr.substitutedResult
                             });
                         }
                     }
@@ -409,31 +418,86 @@
                     const nextUnresolved = [];
                     for (const eq of unresolved) {
                         try {
-                            if (eq.name) {
-                                if (eq.type === 'point' && eq.pointData) {
-                                    const pt = eq.pointData(currentScope);
-                                    if (isNaN(pt.x) || isNaN(pt.y)) throw new Error('NaN');
-                                    currentScope[eq.name] = [pt.x, pt.y];
-                                } else if (eq.type === 'line' && eq.lineData) {
-                                    const ld = eq.lineData(currentScope);
-                                    if (ld && (typeof ld.px === 'number' || typeof ld.a === 'number' || Array.isArray(ld))) currentScope[eq.name] = ld;
-                                } else if (eq.type === 'circle' && eq.circleData) {
-                                    const cd = eq.circleData(currentScope);
-                                    if (cd && !isNaN(cd.cx)) currentScope[eq.name] = cd;
-                                } else if (eq.type === 'ellipse' && eq.ellipseData) {
-                                    const ed = eq.ellipseData(currentScope);
-                                    if (ed && !isNaN(ed.cx)) currentScope[eq.name] = ed;
-                                } else if (eq.type === 'segment' && eq.segmentData) {
-                                    const sd = eq.segmentData(currentScope);
-                                    if (sd && !isNaN(sd.x1)) currentScope[eq.name] = sd;
-                                } else if (eq.type === 'polygon' && eq.polygonData) {
-                                    const pd = eq.polygonData(currentScope);
-                                    if (pd) currentScope[eq.name] = pd;
-                                } else if (eq.constantValue) {
-                                    const val = eq.constantValue(currentScope);
-                                    if (isNaN(val)) throw new Error('NaN');
-                                    currentScope[eq.name] = val;
+                            let resStr = '';
+                            if (eq.type === 'point' && eq.pointData) {
+                                const pt = eq.pointData(currentScope);
+                                if (isNaN(pt.x) || isNaN(pt.y)) throw new Error('NaN');
+                                if (eq.name) currentScope[eq.name] = [pt.x, pt.y];
+                                resStr = `= (${pt.x.toFixed(2)}, ${pt.y.toFixed(2)})`;
+                            } else if (eq.type === 'line' && eq.lineData) {
+                                const ld = eq.lineData(currentScope);
+                                if (ld && (typeof ld.px === 'number' || typeof ld.a === 'number' || Array.isArray(ld))) {
+                                    if (eq.name) currentScope[eq.name] = ld;
+                                    if (typeof ld.a === 'number') {
+                                        // Implicit form: ax + by = c
+                                        const norm = Math.hypot(ld.a, ld.b) || 1;
+                                        const an = ld.a / norm, bn = ld.b / norm, cn = ld.c / norm;
+                                        resStr = `${an.toFixed(2)}x ${bn >= 0 ? '+' : '-'} ${Math.abs(bn).toFixed(2)}y = ${cn.toFixed(2)}`;
+                                    } else if (typeof ld.px === 'number' && typeof ld.dx === 'number') {
+                                        // Parametric form: convert normal direction (-dy, dx) → implicit
+                                        const a = -ld.dy, b = ld.dx;
+                                        const c = a * ld.px + b * ld.py;
+                                        const norm = Math.hypot(a, b) || 1;
+                                        const an = a / norm, bn = b / norm, cn = c / norm;
+                                        resStr = `${an.toFixed(2)}x ${bn >= 0 ? '+' : '-'} ${Math.abs(bn).toFixed(2)}y = ${cn.toFixed(2)}`;
+                                    } else if (Array.isArray(ld) && ld.length > 0) {
+                                        resStr = `${ld.length} line(s)`;
+                                    }
                                 }
+                            } else if (eq.type === 'circle' && eq.circleData) {
+                                const cd = eq.circleData(currentScope);
+                                if (cd && !isNaN(cd.cx)) {
+                                    if (eq.name) currentScope[eq.name] = cd;
+                                    resStr = `(x ${cd.cx >= 0 ? '-' : '+'} ${Math.abs(cd.cx).toFixed(2)})² + (y ${cd.cy >= 0 ? '-' : '+'} ${Math.abs(cd.cy).toFixed(2)})² = ${(cd.r * cd.r).toFixed(2)}`;
+                                }
+                            } else if (eq.type === 'ellipse' && eq.ellipseData) {
+                                const ed = eq.ellipseData(currentScope);
+                                if (ed && !isNaN(ed.cx)) {
+                                    if (eq.name) currentScope[eq.name] = ed;
+                                    resStr = `(x ${ed.cx >= 0 ? '-' : '+'} ${Math.abs(ed.cx).toFixed(2)})²/${(ed.rx*ed.rx).toFixed(2)} + (y ${ed.cy >= 0 ? '-' : '+'} ${Math.abs(ed.cy).toFixed(2)})²/${(ed.ry*ed.ry).toFixed(2)} = 1`;
+                                }
+                            } else if (eq.type === 'implicit' && eq.conicData) {
+                                const cd = eq.conicData(currentScope);
+                                if (cd) {
+                                    // Make uniforms available for fnImplicit and shaders
+                                    currentScope['u_conic_a'] = cd.a;
+                                    currentScope['u_conic_b'] = cd.b;
+                                    currentScope['u_conic_c'] = cd.c;
+                                    currentScope['u_conic_d'] = cd.d;
+                                    currentScope['u_conic_e'] = cd.e;
+                                    currentScope['u_conic_f'] = cd.f;
+                                    // Save for fnImplicit
+                                    currentScope['__conic_cache'] = cd;
+                                    resStr = `${cd.a.toFixed(2)}x² + ${cd.b.toFixed(2)}xy + ${cd.c.toFixed(2)}y² + ${cd.d.toFixed(2)}x + ${cd.e.toFixed(2)}y + ${cd.f.toFixed(2)} = 0`;
+                                }
+                            } else if (eq.type === 'segment' && eq.segmentData) {
+                                const sd = eq.segmentData(currentScope);
+                                if (sd && !isNaN(sd.x1)) {
+                                    if (eq.name) currentScope[eq.name] = sd;
+                                    const len = Math.hypot(sd.x2 - sd.x1, sd.y2 - sd.y1);
+                                    resStr = `Length: ${len.toFixed(2)}`;
+                                }
+                            } else if (eq.type === 'polygon' && eq.polygonData) {
+                                const pd = eq.polygonData(currentScope);
+                                if (pd) {
+                                    if (eq.name) currentScope[eq.name] = pd;
+                                    resStr = `Polygon (${pd.length} points)`;
+                                }
+                            } else if (eq.constantValue) {
+                                const val = eq.constantValue(currentScope);
+                                const isArrayOrMatrix = val && (Array.isArray(val) || typeof val.toArray === 'function');
+                                if (!isArrayOrMatrix && isNaN(val as number)) throw new Error('NaN');
+                                if (eq.name) currentScope[eq.name] = val;
+                                
+                                if (isArrayOrMatrix) {
+                                    const arr = Array.isArray(val) ? val : val.toArray();
+                                    resStr = '= ' + JSON.stringify(arr);
+                                } else {
+                                    resStr = `= ${Number(val).toFixed(2)}`;
+                                }
+                            }
+                            if (resStr && resStr !== (eq as any)._substitutedResult) {
+                                expressions.updateSubstitutedResult(eq.id.split('_')[0], resStr);
                             }
                             if (eq.type === 'regression' && eq.regressionSolve) {
                                 const solveData = eq.regressionSolve(currentScope);
@@ -449,6 +513,12 @@
                                 if (res) {
                                     sliders.updateValue(res.target, res.value);
                                     currentScope[res.target] = res.value;
+                                }
+                            }
+                            if (eq.type === 'transform' && eq.transformExecute) {
+                                const m = eq.transformExecute(currentScope);
+                                if (m) {
+                                    cam.setTransform(m);
                                 }
                             }
                         } catch (e) {
@@ -469,7 +539,10 @@
                 for (const eq of equationsToDraw) {
                     const baseId = eq.id.split('_')[0];
                     (eq as any).selected = ($selectedExpressionId !== null && baseId === $selectedExpressionId);
-                    if ((eq.type === 'implicit' || eq.type === 'inequality') && eq.glslExpr) {
+                    // WebGL 32-bit floats lose precision at extreme zoom levels (zoom > 50000), causing
+                    // implicit equations to break into blocky artifacts. In such cases, fallback to CPU.
+                    const isExtremeZoom = cam.state.zoom > 50000;
+                    if (!isExtremeZoom && (eq.type === 'implicit' || eq.type === 'inequality') && eq.glslExpr) {
                         webglEquations.push(eq);
                     } else {
                         cpuEquations.push(eq);
@@ -487,8 +560,7 @@
                         cam,
                         webglCanvas.width,
                         webglCanvas.height,
-                        eq.color,
-                        $settings.domainColoring
+                        eq.color
                     );
                 }
 
@@ -510,7 +582,7 @@
                     physicsEngine.step(dt, 5, colliders);
                 }
                 
-                currentPois = plotExpressions(ctx!, cpuEquations, cam, width, height, currentScope, themeColors, $settings.gridType, dt, $odeSpawners);
+                currentPois = plotExpressions(ctx!, cpuEquations, cam, width, height, currentScope, themeColors, $settings.gridType, dt);
                 
                 // Draw table points
                 for (const table of activeTables) {
@@ -561,11 +633,14 @@
     // Touch and Mouse handlers
     function handlePointerDown(e: PointerEvent) {
         if (hoveredPointId) {
-            draggingPointId = hoveredPointId;
-            canvas.setPointerCapture(e.pointerId);
             const baseId = hoveredPointId.split('_')[0];
             selectedExpressionId.set(baseId);
-            return;
+            
+            if ($activeTool === 'move') {
+                draggingPointId = hoveredPointId;
+                canvas.setPointerCapture(e.pointerId);
+                return;
+            }
         }
 
         if ($activeTool === 'move') {
@@ -706,18 +781,13 @@
             }
         }
 
-        if ($activeTool === 'ode') {
-            const rect = canvas.getBoundingClientRect();
-            const mathP = cam.screenToMath(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
-            odeSpawners.update(sp => [...sp, { x: mathP.x, y: mathP.y }]);
-            return;
-        }
+        
 
         if ($activeTool === 'point') {
             const rect = canvas.getBoundingClientRect();
             const mathP = cam.screenToMath(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
             const pId = autoName('P');
-            expressions.addExpression(`${pId} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+            expressions.addExpression(`${pId} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
             activeTool.setMode('move');
             return;
         }
@@ -747,14 +817,14 @@
                     segmentStartPoint = clickedPointName;
                 } else {
                     const pId = autoName('P');
-                    expressions.addExpression(`${pId} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                    expressions.addExpression(`${pId} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
                     segmentStartPoint = pId;
                 }
             } else {
                 let endPointName = clickedPointName;
                 if (!endPointName) {
                     endPointName = autoName('P');
-                    expressions.addExpression(`${endPointName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                    expressions.addExpression(`${endPointName} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
                 }
                 if (segmentStartPoint !== endPointName) {
                     expressions.addExpression(`${autoName('s')} = Segment(${segmentStartPoint}, ${endPointName})`);
@@ -788,7 +858,7 @@
             let ptName = clickedPointName;
             if (!ptName) {
                 ptName = autoName('P');
-                expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                expressions.addExpression(`${ptName} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
             }
 
             // If we click the first point again, close the polygon
@@ -827,14 +897,14 @@
                     circleStartPoint = clickedPointName;
                 } else {
                     const pId = autoName('P');
-                    expressions.addExpression(`${pId} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                    expressions.addExpression(`${pId} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
                     circleStartPoint = pId;
                 }
             } else {
                 let endPointName = clickedPointName;
                 if (!endPointName) {
                     endPointName = autoName('P');
-                    expressions.addExpression(`${endPointName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                    expressions.addExpression(`${endPointName} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
                 }
                 if (circleStartPoint !== endPointName) {
                     expressions.addExpression(`${autoName('c')} = Circle(${circleStartPoint}, ${endPointName})`);
@@ -915,7 +985,7 @@
                     let ptName = clickedPointName;
                     if (!ptName) {
                         ptName = autoName('P');
-                        expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                        expressions.addExpression(`${ptName} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
                     }
                     angleBisectorPoints.push(ptName);
                     if (angleBisectorPoints.length === 3) {
@@ -932,7 +1002,7 @@
                     let ptName = clickedPointName;
                     if (!ptName) {
                         ptName = autoName('P');
-                        expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                        expressions.addExpression(`${ptName} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
                     }
                     if (!perpendicularObjects.includes(ptName)) {
                         perpendicularObjects.push(ptName);
@@ -952,7 +1022,7 @@
                     let ptName = clickedPointName;
                     if (!ptName) {
                         ptName = autoName('P');
-                        expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                        expressions.addExpression(`${ptName} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
                     }
                     if (!parallelObjects.includes(ptName)) {
                         parallelObjects.push(ptName);
@@ -966,12 +1036,31 @@
                 }
                 return;
             } else if ($activeTool === 'conic') {
+                // Snap to any named point, not just draggable ones
                 let ptName = clickedPointName;
                 if (!ptName) {
-                    ptName = autoName('P');
-                    expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                    // Check all named point equations for proximity
+                    const SNAP_PX = 20;
+                    for (let i = lastEquationsToDraw.length - 1; i >= 0; i--) {
+                        const ceq = lastEquationsToDraw[i];
+                        if (ceq.name && ceq.type === 'point' && ceq.pointData) {
+                            try {
+                                const p = ceq.pointData(lastScope);
+                                if (Math.hypot(p.x - mathP.x, p.y - mathP.y) * cam.state.zoom < SNAP_PX) {
+                                    ptName = ceq.name;
+                                    break;
+                                }
+                            } catch {}
+                        }
+                    }
                 }
-                conicPoints.push(ptName);
+                if (!ptName) {
+                    ptName = autoName('P');
+                    expressions.addExpression(`${ptName} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
+                }
+                if (!conicPoints.includes(ptName)) {
+                    conicPoints.push(ptName);
+                }
                 if (conicPoints.length === 5) {
                     expressions.addExpression(`${autoName('c')} = Conic(${conicPoints.join(', ')})`);
                     conicPoints = [];
@@ -985,7 +1074,7 @@
             
             if (!ptName) {
                 ptName = autoName('P');
-                expressions.addExpression(`${ptName} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`);
+                expressions.addExpression(`${ptName} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
             }
 
             if ($activeTool === 'circle3pts') {
@@ -1096,18 +1185,26 @@
         if (draggingPointId) {
             let mathP = cam.screenToMath(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
             
-            // Grid Snapping
+            // Snapping logic
             const snapThreshold = 10 / cam.state.zoom; // 10 pixels snapping distance
             if (Math.abs(mathP.x - Math.round(mathP.x)) < snapThreshold) mathP.x = Math.round(mathP.x);
             if (Math.abs(mathP.y - Math.round(mathP.y)) < snapThreshold) mathP.y = Math.round(mathP.y);
-            // Axis Snapping
             if (Math.abs(mathP.x) < snapThreshold) mathP.x = 0;
             if (Math.abs(mathP.y) < snapThreshold) mathP.y = 0;
 
-            const eq = lastEquationsToDraw.find(eq => eq.id === draggingPointId);
-            if (eq) {
-                const newText = eq.name ? `${eq.name} = (${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})` : `(${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)})`;
-                expressions.updateText(eq.id, newText, newText);
+            if (draggingPointId.includes('_pt_')) {
+                const [tableId, ptStr, indexStr] = draggingPointId.split('_');
+                const ptIndex = parseInt(indexStr);
+                const expr = $expressions.find(ex => ex.id === tableId);
+                if (expr && expr.type === 'table') {
+                    expressions.updateTablePoint(tableId, ptIndex, parseFloat(mathP.x.toFixed(2)), parseFloat(mathP.y.toFixed(2)));
+                }
+            } else {
+                const eq = lastEquationsToDraw.find(eq => eq.id === draggingPointId);
+                if (eq) {
+                    const newText = eq.name ? `${eq.name} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]` : `[${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`;
+                    expressions.updateText(eq.id, newText, newText);
+                }
             }
             return;
         }
@@ -1130,6 +1227,111 @@
                     } catch (err) {}
                 }
             }
+            // Check table points
+            if (!foundPoint) {
+                const activeTables = $expressions.filter(e => e.type === 'table');
+                for (const table of activeTables) {
+                    if (!table.visible || !table.points) continue;
+                    for (let i = 0; i < table.points.length; i++) {
+                        const p = table.points[i];
+                        if (p.x === null || p.y === null) continue;
+                        const dx = p.x - mathP.x;
+                        const dy = p.y - mathP.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy) * cam.state.zoom;
+                        if (dist < 15) {
+                            foundPoint = `${table.id}_pt_${i}`;
+                            break;
+                        }
+                    }
+                    if (foundPoint) break;
+                }
+            }
+
+            /**
+             * @brief Hover detection for selectable (non-draggable) geometric objects.
+             * @details Checks lines, segments, circles, ellipses, explicit functions,
+             *          implicit curves, parametric curves and conics for cursor proximity.
+             *          Uses pixel-space distance threshold to decide cursor feedback.
+             */
+            let hoveredCurve: string | null = null;
+            if (!foundPoint) {
+                const HIT_PX = 12; // pixel hit threshold
+                for (const eq of lastEquationsToDraw) {
+                    try {
+                        if (eq.type === 'segment' && eq.segmentData) {
+                            const seg = eq.segmentData(lastScope);
+                            if (seg) {
+                                const l2 = (seg.x2 - seg.x1)**2 + (seg.y2 - seg.y1)**2;
+                                const t = l2 > 0 ? Math.max(0, Math.min(1, ((mathP.x - seg.x1)*(seg.x2 - seg.x1) + (mathP.y - seg.y1)*(seg.y2 - seg.y1)) / l2)) : 0;
+                                const px = seg.x1 + t*(seg.x2 - seg.x1);
+                                const py = seg.y1 + t*(seg.y2 - seg.y1);
+                                if (Math.hypot(mathP.x - px, mathP.y - py) * cam.state.zoom < HIT_PX) { hoveredCurve = eq.id; break; }
+                            }
+                        } else if (eq.type === 'line' && eq.lineData) {
+                            const ld = eq.lineData(lastScope);
+                            const lines = Array.isArray(ld) ? ld : (ld ? [ld] : []);
+                            for (const l of lines) {
+                                if (typeof l.a === 'number') {
+                                    // Implicit line ax + by = c: perpendicular pixel distance
+                                    const dist = Math.abs(l.a * mathP.x + l.b * mathP.y - l.c) / Math.hypot(l.a, l.b) * cam.state.zoom;
+                                    if (dist < HIT_PX) { hoveredCurve = eq.id; break; }
+                                } else if (typeof l.px === 'number') {
+                                    // Parametric line through (px,py) in direction (dx,dy)
+                                    const dlen = Math.hypot(l.dx, l.dy);
+                                    if (dlen > 0) {
+                                        const nx = -l.dy / dlen, ny = l.dx / dlen;
+                                        const dist = Math.abs(nx*(mathP.x - l.px) + ny*(mathP.y - l.py)) * cam.state.zoom;
+                                        if (dist < HIT_PX) { hoveredCurve = eq.id; break; }
+                                    }
+                                }
+                            }
+                            if (hoveredCurve) break;
+                        } else if (eq.type === 'circle' && eq.circleData) {
+                            const cd = eq.circleData(lastScope);
+                            if (cd) {
+                                const distToEdge = Math.abs(Math.hypot(mathP.x - cd.cx, mathP.y - cd.cy) - cd.r) * cam.state.zoom;
+                                if (distToEdge < HIT_PX) { hoveredCurve = eq.id; break; }
+                            }
+                        } else if (eq.type === 'ellipse' && eq.ellipseData) {
+                            const ed = eq.ellipseData(lastScope);
+                            if (ed) {
+                                // Normalised distance via gradient of ellipse equation
+                                const nx = (mathP.x - ed.cx) / (ed.rx || 1);
+                                const ny = (mathP.y - ed.cy) / (ed.ry || 1);
+                                const val = Math.abs(nx*nx + ny*ny - 1);
+                                const gradX = 2*nx/ed.rx, gradY = 2*ny/ed.ry;
+                                const gradLen = Math.hypot(gradX, gradY) || 1;
+                                if ((val / gradLen) * cam.state.zoom < HIT_PX) { hoveredCurve = eq.id; break; }
+                            }
+                        } else if ((eq.type === 'explicit' || eq.type === 'regression') && eq.fnExplicit) {
+                            // Vertical pixel distance from cursor to function value
+                            const y = eq.fnExplicit(mathP.x, lastScope);
+                            if (!isNaN(y) && Math.abs(mathP.y - y) * cam.state.zoom < HIT_PX) { hoveredCurve = eq.id; break; }
+                        } else if ((eq.type === 'implicit' || eq.type === 'conic') && eq.fnImplicit) {
+                            // |F(p)| / |∇F| gives approximate pixel distance to implicit curve
+                            const v = eq.fnImplicit(mathP.x, mathP.y, lastScope);
+                            const eps = 1.0 / cam.state.zoom; // 1 pixel in math coordinates
+                            const gx = (eq.fnImplicit(mathP.x + eps, mathP.y, lastScope) - v) / eps;
+                            const gy = (eq.fnImplicit(mathP.x, mathP.y + eps, lastScope) - v) / eps;
+                            const gl = Math.hypot(gx, gy) || 1;
+                            if ((Math.abs(v) / gl) * cam.state.zoom < HIT_PX) { hoveredCurve = eq.id; break; }
+                        } else if (eq.type === 'parametric' && eq.fnParametric) {
+                            // Sample 200 points along parameter range and find closest
+                            const bounds = eq.paramBounds || [0, 2 * Math.PI];
+                            const steps = 200;
+                            const dt2 = (bounds[1] - bounds[0]) / steps;
+                            let minD = Infinity;
+                            for (let i = 0; i <= steps; i++) {
+                                const p = eq.fnParametric(bounds[0] + i * dt2, lastScope);
+                                const d = Math.hypot(p.x - mathP.x, p.y - mathP.y);
+                                if (d < minD) minD = d;
+                            }
+                            if (minD * cam.state.zoom < HIT_PX) { hoveredCurve = eq.id; break; }
+                        }
+                    } catch {}
+                }
+            }
+
             hoveredPointId = foundPoint;
             
             // Check POIs for tooltip
@@ -1151,7 +1353,7 @@
             }
             activeTooltip = foundPoi;
 
-            canvas.style.cursor = hoveredPointId || activeTooltip ? 'pointer' : 'grab';
+            canvas.style.cursor = hoveredPointId || hoveredCurve || activeTooltip ? 'pointer' : 'grab';
             return;
         }
 

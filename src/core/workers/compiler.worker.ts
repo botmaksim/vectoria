@@ -47,7 +47,7 @@ self.onmessage = (e: MessageEvent) => {
 
     const vars = new Set<string>();
     extractVars(node, vars);
-    const glslData = compileGLSL(node, isComplex);
+    const glslData = compileGLSL(node);
 
     self.postMessage({
       id,

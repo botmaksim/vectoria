@@ -5,6 +5,7 @@
  */
 import type { Camera } from "./camera";
 import type { EquationType } from "../math/evaluator";
+import type { WebGLRenderer } from "./webglRenderer";
 
 import { drawGrid } from "./plotterGrid";
 import {
@@ -18,9 +19,9 @@ import {
 } from "./plotterPrimitives";
 import { plotAdaptive, plotParametric, plotIntegral } from "./plotterFunctions";
 import { plotMarchingSquares, findIntersections } from "./plotterImplicit";
-import { plotVectorField } from "./plotterVectorField";
 import { physicsEngine } from "../math/physicsEngine";
 import { plotFourier, plotVoronoi, plotDelaunay } from "./plotterData";
+import { plotVectorField } from "./plotterVectorField";
 
 export interface CompiledEquation {
   id: string;
@@ -139,10 +140,13 @@ export function plotExpressions(
   themeColors: ThemeColors,
   gridType: string = "cartesian",
   dt: number = 0.016,
-  odeSpawners: { x: number; y: number }[] = [],
+  webglRenderer?: WebGLRenderer,
 ): { x: number; y: number; type: string }[] {
   ctx.clearRect(0, 0, width, height);
-  drawGrid(ctx, camera, width, height, themeColors, gridType);
+
+  if (gridType !== 'none') {
+      drawGrid(ctx, camera, width, height, themeColors, gridType);
+  }
 
   for (const [id, history] of traceHistory.entries()) {
     for (let i = history.length - 1; i >= 0; i--) {
@@ -280,18 +284,7 @@ export function plotExpressions(
       const data = eq.labelData(eqScope);
       if (data)
         plotLabel(ctx, camera, data, eq.color, width, height, themeColors);
-    } else if (eq.type === "vectorField" && eq.vectorData) {
-      plotVectorField(
-        ctx,
-        camera,
-        eq.vectorData,
-        eq.color,
-        width,
-        height,
-        eqScope,
-        dt,
-        odeSpawners,
-      );
+
     } else if (eq.type === "fourier" && eq.dataFn) {
       const data = eq.dataFn(eqScope);
       if (data) {
@@ -323,20 +316,56 @@ export function plotExpressions(
     } else if (eq.type === "delaunay" && eq.dataFn) {
       const data = eq.dataFn(eqScope);
       if (data) plotDelaunay(ctx, camera, data, eq.color, width, height);
+    } else if (eq.type === "vectorField" && eq.vectorData) {
+      /**
+       * @brief Renders a continuous vector field via particle advection.
+       * @details Delegates to plotVectorField which maintains its own particle state.
+       *          ODE spawn points are extracted from the current point equations in scope.
+       */
+      const odeSpawners: { x: number; y: number }[] = [];
+      for (const other of equations) {
+        if (other.type === 'point' && other.pointData) {
+          try {
+            const p = other.pointData(eqScope);
+            if (typeof p.x === 'number' && typeof p.y === 'number') {
+              odeSpawners.push({ x: p.x, y: p.y });
+            }
+          } catch {}
+        }
+      }
+      plotVectorField(ctx, camera, eq.vectorData, eq.color, width, height, eqScope, dt, odeSpawners);
     } else if (eq.type === "physicsNode" && eq.physicsData) {
       const result = eq.physicsData(eqScope);
       if (result) {
         const items = Array.isArray(result) ? result : [result];
         for (const item of items) {
           if (item.id && item.x !== undefined && item.y !== undefined) {
-            physicsEngine.registerNode(item.id, item.x, item.y, item.pinned);
+            /**
+             * @brief Register node only on first appearance; on subsequent frames
+             *        only update pinned nodes from the compiled data, letting the
+             *        physics engine own the position of free nodes.
+             */
+            if (!physicsEngine.nodes.has(item.id)) {
+              physicsEngine.registerNode(item.id, item.x, item.y, item.pinned);
+            } else if (item.pinned) {
+              const node = physicsEngine.nodes.get(item.id)!;
+              node.x = item.x;
+              node.y = item.y;
+              node.oldX = item.x;
+              node.oldY = item.y;
+              node.pinned = true;
+            }
+            const simNode = physicsEngine.nodes.get(item.id)!;
+            const renderX = simNode.x;
+            const renderY = simNode.y;
+
             if (eq.isTraced)
               drawTrace(
                 ctx,
                 camera,
                 eq.id + "_" + item.id,
-                item.x,
-                item.y,
+                renderX,
+                renderY,
                 eq.color,
                 width,
                 height,
@@ -344,7 +373,7 @@ export function plotExpressions(
             plotPoint(
               ctx,
               camera,
-              { x: item.x, y: item.y },
+              { x: renderX, y: renderY },
               eq.color,
               width,
               height,
@@ -384,7 +413,7 @@ export function plotExpressions(
         themeColors.text,
         width,
         height,
-        2,
+        2
       );
     }
   }

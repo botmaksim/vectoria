@@ -54,10 +54,10 @@ export class Camera {
 
   /**
    * @brief Transforms mathematical coordinates to screen pixel coordinates.
-   * @param mathX The mathematical x-coordinate.
-   * @param mathY The mathematical y-coordinate.
-   * @param canvasWidth The current logical width of the rendering canvas.
-   * @param canvasHeight The current logical height of the rendering canvas.
+   * @param mathX:number The mathematical x-coordinate.
+   * @param mathY:number The mathematical y-coordinate.
+   * @param canvasWidth:number The current logical width of the rendering canvas.
+   * @param canvasHeight:number The current logical height of the rendering canvas.
    * @returns A coordinate vector mapped to screen space.
    */
   mathToScreen(
@@ -77,11 +77,15 @@ export class Camera {
 
   /**
    * @brief Transforms screen pixel coordinates back into mathematical coordinates.
-   * @param screenX The physical x-coordinate on the screen canvas.
-   * @param screenY The physical y-coordinate on the screen canvas.
-   * @param canvasWidth The current logical width of the rendering canvas.
-   * @param canvasHeight The current logical height of the rendering canvas.
+   * @param screenX:number The physical x-coordinate on the screen canvas.
+   * @param screenY:number The physical y-coordinate on the screen canvas.
+   * @param canvasWidth:number The current logical width of the rendering canvas.
+   * @param canvasHeight:number The current logical height of the rendering canvas.
    * @returns A coordinate vector mapped to the mathematical domain.
+   * @param screenX:number
+   * @param screenY:number
+   * @param canvasWidth:number
+   * @param canvasHeight:number
    */
   screenToMath(
     screenX: number,

@@ -7,9 +7,7 @@
 import { writable } from 'svelte/store';
 import { Logger } from '../utils/logger';
 
-export type ToolMode = 'move' | 'point' | 'segment' | 'line' | 'polygon' | 'circle' | 'perpBisector' | 'perpendicular' | 'angleBisector' | 'tangent' | 'intersect' | 'delete' | 'ode' | 'midpoint' | 'circle3pts' | 'parallel' | 'conic';
-
-export const odeSpawners = writable<{x: number, y: number}[]>([]);
+export type ToolMode = 'move' | 'point' | 'segment' | 'line' | 'polygon' | 'circle' | 'perpBisector' | 'perpendicular' | 'angleBisector' | 'tangent' | 'intersect' | 'delete' | 'midpoint' | 'circle3pts' | 'parallel' | 'conic';
 
 function createToolStore() {
     const { subscribe, set } = writable<ToolMode>('move');
@@ -24,3 +22,4 @@ function createToolStore() {
 }
 
 export const activeTool = createToolStore();
+export const odeSpawners = writable<{ x: number; y: number }[]>([]);

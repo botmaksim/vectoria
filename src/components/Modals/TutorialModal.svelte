@@ -22,6 +22,7 @@
         { title: 'tutorial_tools', icon: '📐' },
         { title: 'tutorial_cas', icon: '🧮' },
         { title: 'tutorial_piecewise', icon: '🧩' },
+        { title: 'tutorial_calculus', icon: '∫' },
         { title: 'tutorial_text', icon: '📋' },
         { title: 'tutorial_gallery', icon: '🖼️' },
         { title: 'tutorial_recording', icon: '🎥' }

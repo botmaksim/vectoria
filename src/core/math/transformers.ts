@@ -22,6 +22,16 @@ export function preprocessMathLive(text: string): string {
   // Support variable subscripts: e.g. s_{ab} -> s_ab, c_{1} -> c_1
   let processed = text.replace(/([a-zA-Z_][a-zA-Z0-9_]*)_\{([a-zA-Z0-9_]+)\}/g, '$1_$2');
 
+  // Convert coordinate tuples like (1, 2) into arrays [1, 2] for MathJS.
+  // We avoid replacing function calls like f(1, 2) by checking that the preceding char is not a letter/number/_
+  let lastProcessed = "";
+  while (processed !== lastProcessed) {
+    lastProcessed = processed;
+    processed = processed.replace(/(^|[^a-zA-Z0-9_])(\s*)\(([^()]+,[^()]+)\)/g, (match, p1, p2, p3) => {
+      return `${p1}${p2}[${p3}]`;
+    });
+  }
+
   processed = processed.replace(
     /\[\s*([^\]\.]+)\s*\.\.\s*([^\]]+)\s*\]/g,
     "($1:$2)",
@@ -55,16 +65,8 @@ export function preprocessMathLive(text: string): string {
     "derivative($1($2), $2)"
   );
 
-  processed = processed.replace(
-    /int\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/g,
-    (match, expr, variable, a, b) => {
-      try {
-        return `(${nerdamer(`defint(${expr}, ${a}, ${b}, ${variable})`).toString()})`;
-      } catch (e) {
-        return match;
-      }
-    },
-  );
+  // Removed nerdamer defint processing.
+  // Integral evaluation is handled dynamically by calculusCompiler.ts.
 
   processed = processed.replace(/\{([^}]+)\}/g, (match, contents) => {
     const parts = contents.split(",");
@@ -96,7 +98,7 @@ export function extractVars(node: any, vars: Set<string>) {
     if (n.isSymbolNode) {
       const name = n.name;
       const isFunction = parent && parent.isFunctionNode && parent.fn === n;
-      const isConstant = ["x", "y", "e", "pi", "i", "phi", "t", "u"].includes(name);
+      const isConstant = ["x", "y", "e", "pi", "i", "phi", "t", "u", "dx", "dy", "dt", "dz", "d"].includes(name);
 
       if (!isFunction && !isConstant) {
         vars.add(name);
@@ -118,7 +120,8 @@ export function transformImplicitMultiplication(node: any, customNames: Set<stri
     "circle", "segment", "line", "point", "midpoint", "intersect",
     "perpendicular", "parallel", "anglebisector", "perpendicularbisector",
     "tangent", "conic", "fourier", "voronoi", "delaunay", "transform",
-    "mandelbrot", "julia", "int", "derivative", "defint", "diff", "trace"
+    "int", "derivative", "defint", "diff", "trace",
+    "polygon", "label", "physicsnode", "physicslink", "physicscloth", "vectorfield", "ode"
   ]);
 
   return node.transform(function (n: any) {
@@ -173,22 +176,28 @@ export function transformImplicitMultiplication(node: any, customNames: Set<stri
 export function substituteCustomFunctions(
   node: any,
   customFunctions: Record<string, { param: string; body: string }>,
+  depth: number = 0
 ) {
+  if (depth > 20) throw new Error("Maximum function substitution depth exceeded. Infinite recursion?");
   return node.transform(function (n: any) {
     if (n.isFunctionNode) {
       const funcName = n.fn.name;
       if (customFunctions[funcName]) {
         const def = customFunctions[funcName];
-        const argNode = n.args[0];
+        let argNode = n.args[0];
         if (!argNode) return n;
+        
+        argNode = substituteCustomFunctions(argNode, customFunctions, depth + 1);
 
         const bodyNode = parse(def.body);
-        return bodyNode.transform(function (bodyN: any) {
+        const substitutedBody = bodyNode.transform(function (bodyN: any) {
           if (bodyN.isSymbolNode && bodyN.name === def.param) {
             return argNode.clone();
           }
           return bodyN;
         });
+        
+        return substituteCustomFunctions(substitutedBody, customFunctions, depth + 1);
       }
     }
     return n;

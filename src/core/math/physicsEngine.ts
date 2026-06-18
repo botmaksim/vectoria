@@ -61,6 +61,10 @@ export class PhysicsEngine {
    * @param nodeA First node ID.
    * @param nodeB Second node ID.
    * @param length Distance to maintain.
+   * @param id:string
+   * @param x:number
+   * @param y:number
+   * @param pinned:boolean
    */
   registerConstraint(nodeA: string, nodeB: string, length: number) {
     const id1 = nodeA;
@@ -89,6 +93,9 @@ export class PhysicsEngine {
 
   /**
    * @brief Resets the physics engine by clearing all nodes and constraints.
+   * @param nodeA:string
+   * @param nodeB:string
+   * @param length:number
    */
   reset() {
     Logger.info("PhysicsEngine", "Resetting all nodes and constraints.");

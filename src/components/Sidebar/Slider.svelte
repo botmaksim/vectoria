@@ -2,7 +2,6 @@
     /**
      * @file Slider.svelte
      * @brief UI component for manipulating scalar variable values.
-     * @details Renders an HTML range input bound to a specific mathematical parameter in the global slider store.
      */
 
     import { sliders } from '../../state/store';
@@ -11,35 +10,37 @@
     export let name: string;
     
     $: slider = $sliders[name];
+    let expanded = false;
 
-    /**
-     * @brief Handles range input events and updates the scalar value in the store.
-     * @param e DOM Event from the range input.
-     */
     function handleChange(e: Event) {
         const val = parseFloat((e.target as HTMLInputElement).value);
-        Logger.debug('Slider', `Variable '${name}' updated to ${val}`);
         sliders.updateValue(name, val);
     }
 
     function togglePlay() {
         sliders.togglePlay(name);
     }
+    
+    function updateLimit(field: 'min' | 'max' | 'step' | 'animSpeed', e: Event) {
+        const val = parseFloat((e.target as HTMLInputElement).value);
+        if (isNaN(val)) return;
+        const s = { ...slider, [field]: val };
+        sliders.updateLimits(name, s.min, s.max, s.step, s.animSpeed || 1);
+    }
 </script>
 
 <div class="slider-row">
     <div class="slider-info">
         <div class="left-group">
-            <button class="play-btn" on:click={togglePlay} title="Play/Pause Animation">
-                {#if slider.isPlaying}
-                    ⏸
-                {:else}
-                    ▶
-                {/if}
+            <button class="icon-btn play-btn" on:click={togglePlay} title="Play/Pause Animation">
+                {#if slider.isPlaying}⏸{:else}▶{/if}
             </button>
             <span class="name">{name}</span>
         </div>
-        <span class="value">{slider.value.toFixed(1)}</span>
+        <div class="right-group">
+            <span class="value">{slider.value.toFixed(1)}</span>
+            <button class="icon-btn settings-btn" on:click={() => expanded = !expanded} title="Settings">⚙</button>
+        </div>
     </div>
     <input 
         type="range" 
@@ -50,6 +51,14 @@
         on:input={handleChange}
         aria-label={`Adjust variable ${name}`}
     />
+    {#if expanded}
+    <div class="slider-settings">
+        <label>Min <input type="number" value={slider.min} on:change={(e) => updateLimit('min', e)} /></label>
+        <label>Max <input type="number" value={slider.max} on:change={(e) => updateLimit('max', e)} /></label>
+        <label>Step <input type="number" value={slider.step} on:change={(e) => updateLimit('step', e)} /></label>
+        <label>Speed <input type="number" value={slider.animSpeed || 1} on:change={(e) => updateLimit('animSpeed', e)} step="0.1" /></label>
+    </div>
+    {/if}
 </div>
 
 <style>
@@ -74,12 +83,12 @@
         align-items: center;
         font-size: 0.95rem;
     }
-    .left-group {
+    .left-group, .right-group {
         display: flex;
         align-items: center;
         gap: 8px;
     }
-    .play-btn {
+    .icon-btn {
         background: transparent;
         border: none;
         color: var(--accent-color);
@@ -92,7 +101,7 @@
         font-size: 1.1rem;
         transition: background-color 0.2s;
     }
-    .play-btn:hover {
+    .icon-btn:hover {
         background: var(--bg-surface-hover);
     }
     .name {
@@ -112,5 +121,28 @@
         width: 100%;
         accent-color: var(--accent-color);
         cursor: ew-resize;
+    }
+    .slider-settings {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border-color);
+    }
+    .slider-settings label {
+        display: flex;
+        flex-direction: column;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+    .slider-settings input {
+        background: var(--bg-body);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 4px;
+        font-size: 0.85rem;
+        color: var(--text-primary);
+        margin-top: 2px;
     }
 </style>

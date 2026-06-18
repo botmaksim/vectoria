@@ -10,6 +10,9 @@ import { Logger } from "../../utils/logger";
 /**
  * @brief Vertex shader source code.
  * @details Passes the fullscreen quad positions directly to gl_Position.
+ * @param glslExpr:string
+ * @param op:string
+ * @param uniformsList:string
  */
 const VS_SOURCE = `
 attribute vec2 position;
@@ -29,7 +32,6 @@ function getFSSource(
   glslExpr: string,
   op: string,
   uniformsList: string[],
-  isComplexExpr: boolean,
 ): string {
   let uniformsStr = uniformsList.map((u) => `uniform float ${u};`).join("\n");
   let evaluationStr = "";
@@ -65,6 +67,10 @@ function getFSSource(
   }
 
   const complexLibrary = `
+        float sinh(float x) { return (exp(x) - exp(-x)) / 2.0; }
+        float cosh(float x) { return (exp(x) + exp(-x)) / 2.0; }
+        float tanh(float x) { float e2x = exp(2.0 * x); return (e2x - 1.0) / (e2x + 1.0); }
+
         vec2 c_add(vec2 a, vec2 b) { return a + b; }
         vec2 c_sub(vec2 a, vec2 b) { return a - b; }
         vec2 c_mul(vec2 a, vec2 b) { return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x); }
@@ -87,7 +93,7 @@ function getFSSource(
         }
     `;
 
-  return `
+    return `
     #extension GL_OES_standard_derivatives : enable
     precision highp float;
     
@@ -95,20 +101,16 @@ function getFSSource(
     uniform vec2 u_camPos;
     uniform float u_zoom;
     uniform vec3 u_color;
-    uniform bool u_domainColoring;
     uniform mat2 u_invTransform;
     
     ${uniformsStr}
-    ${complexLibrary}
     
+    ${complexLibrary}
+
     float f(float x, float y) {
-        return ${!isComplexExpr ? glslExpr : "0.0"};
+        ${glslExpr.includes('return') ? glslExpr : 'return ' + glslExpr + ';'}
     }
 
-    vec2 f_complex(vec2 z) {
-        return ${isComplexExpr ? glslExpr : "vec2(0.0)"};
-    }
-    
     void main() {
         vec2 mathPos = vec2(
             u_camPos.x + (gl_FragCoord.x - u_resolution.x * 0.5) / u_zoom,
@@ -116,24 +118,10 @@ function getFSSource(
         );
         mathPos = u_invTransform * mathPos;
 
-        if (u_domainColoring) {
-            vec2 z = f_complex(mathPos);
-            float arg = atan(z.y, z.x);
-            float hue = arg / (2.0 * 3.14159265) + 0.5;
-            float r = length(z);
-            float lightness = 1.0 - 0.5 * exp(-r);
-            float grid = max(
-                smoothstep(0.9, 1.0, sin(r * 3.14159 * 2.0)),
-                smoothstep(0.95, 1.0, sin(arg * 6.0))
-            ) * 0.2;
-            vec3 col = hsl2rgb(vec3(hue, 1.0, lightness - grid));
-            gl_FragColor = vec4(col, 1.0);
-        } else {
-            float x = mathPos.x;
-            float y = mathPos.y;
-            float val = f(x, y);
-            ${evaluationStr}
-        }
+        float x = mathPos.x;
+        float y = mathPos.y;
+        float val = f(x, y);
+        ${evaluationStr}
     }
     `;
 }
@@ -223,18 +211,18 @@ export class WebGLRenderer {
    * @param op The relational operator.
    * @param uniformsList The required uniforms.
    * @returns The compiled program data, or null on failure.
+   * @param canvas:HTMLCanvasElement
    */
   getOrCreateProgram(
     id: string,
     glslExpr: string,
     op: string,
     uniformsList: string[],
-    isComplex: boolean,
   ) {
     if (!this.gl) return null;
     const gl = this.gl;
 
-    const cacheKey = id + "_" + glslExpr + "_" + op + "_" + isComplex;
+    const cacheKey = id + "_" + glslExpr + "_" + op;
     if (this.programCache.has(cacheKey)) {
       return this.programCache.get(cacheKey);
     }
@@ -246,7 +234,7 @@ export class WebGLRenderer {
     const vs = this.compileShader(gl.VERTEX_SHADER, VS_SOURCE);
     const fs = this.compileShader(
       gl.FRAGMENT_SHADER,
-      getFSSource(glslExpr, op, uniformsList, isComplex),
+      getFSSource(glslExpr, op, uniformsList),
     );
 
     if (!vs || !fs) return null;
@@ -313,14 +301,12 @@ export class WebGLRenderer {
     width: number,
     height: number,
     colorHex: string,
-    isComplex: boolean,
   ): void {
     const programData = this.getOrCreateProgram(
       id,
       glslExpr,
       op,
       customUniforms,
-      isComplex,
     );
     if (!programData || !this.gl || !this.quadBuffer) return;
     const gl = this.gl;
@@ -342,7 +328,8 @@ export class WebGLRenderer {
     gl.uniform2f(camLoc, camera.state.x, camera.state.y);
 
     const zoomLoc = gl.getUniformLocation(program, "u_zoom");
-    gl.uniform1f(zoomLoc, camera.state.zoom);
+    const dpr = window.devicePixelRatio || 1;
+    gl.uniform1f(zoomLoc, camera.state.zoom * dpr);
 
     const locInvTransform = gl.getUniformLocation(program, "u_invTransform");
     if (locInvTransform) {
@@ -358,14 +345,6 @@ export class WebGLRenderer {
     if (locColor) {
       const rgb = this.hexToRGB(colorHex);
       gl.uniform3f(locColor, rgb[0], rgb[1], rgb[2]);
-    }
-
-    const locDomainColoring = gl.getUniformLocation(
-      program,
-      "u_domainColoring",
-    );
-    if (locDomainColoring) {
-      gl.uniform1i(locDomainColoring, isComplex ? 1 : 0);
     }
 
     for (const u of uniforms) {

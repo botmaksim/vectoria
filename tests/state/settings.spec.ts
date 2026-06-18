@@ -17,10 +17,13 @@ describe('Settings Store', () => {
     });
 
     it('should toggle grid between cartesian and polar', () => {
-        settings.toggleGrid();
+        settings.toggleGridType();
         expect(get(settings).gridType).toBe('polar');
 
-        settings.toggleGrid();
+        settings.toggleGridType();
+        expect(get(settings).gridType).toBe('none');
+        
+        settings.toggleGridType();
         expect(get(settings).gridType).toBe('cartesian');
     });
 
@@ -32,11 +35,5 @@ describe('Settings Store', () => {
         expect(get(settings).gridType).toBe('cartesian');
     });
 
-    it('should toggle domain coloring state', () => {
-        settings.toggleDomainColoring();
-        expect(get(settings).domainColoring).toBe(true);
-
-        settings.toggleDomainColoring();
-        expect(get(settings).domainColoring).toBe(false);
-    });
+    
 });

@@ -32,6 +32,7 @@ function createExpressionsStore() {
 
     return {
         subscribe,
+        set,
         /**
          * @brief Adds a new empty mathematical expression.
          * @param text Optional text to initialize the expression.
@@ -142,6 +143,19 @@ function createExpressionsStore() {
             return exprs.filter(e => e.id !== id);
         }),
         /**
+         * @brief Updates the structural order of expressions.
+         * @param fromIndex Original index.
+         * @param toIndex Target index.
+         */
+        moveExpression: (fromIndex: number, toIndex: number) => update(exprs => {
+            if (fromIndex < 0 || fromIndex >= exprs.length || toIndex < 0 || toIndex >= exprs.length) return exprs;
+            const newExprs = [...exprs];
+            const [moved] = newExprs.splice(fromIndex, 1);
+            newExprs.splice(toIndex, 0, moved);
+            Logger.info('Store', `Moved expression from ${fromIndex} to ${toIndex}.`);
+            return newExprs;
+        }),
+        /**
          * @brief Merges visual styling properties into an expression.
          * @param id The expression identifier.
          * @param styleProps Partial expression object containing style fields.
@@ -170,7 +184,20 @@ function createExpressionsStore() {
                 return e;
             });
         }),
-        set
+        /**
+         * @brief Updates the real-time evaluated result string for display.
+         */
+        updateSubstitutedResult: (id: string, substitutedResult: string) => update(exprs => {
+            let changed = false;
+            const newExprs = exprs.map(e => {
+                if (e.id === id && e.substitutedResult !== substitutedResult) {
+                    changed = true;
+                    return { ...e, substitutedResult };
+                }
+                return e;
+            });
+            return changed ? newExprs : exprs;
+        })
     };
 }
 
@@ -248,6 +275,15 @@ function createSlidersStore() {
         updateValue: (name: string, value: number) => update(current => {
             if (current[name]) {
                 return { ...current, [name]: { ...current[name], value } };
+            }
+            return current;
+        }),
+        /**
+         * @brief Updates the limits and step of a specific slider.
+         */
+        updateLimits: (name: string, min: number, max: number, step: number, animSpeed: number) => update(current => {
+            if (current[name]) {
+                return { ...current, [name]: { ...current[name], min, max, step, animSpeed } };
             }
             return current;
         }),

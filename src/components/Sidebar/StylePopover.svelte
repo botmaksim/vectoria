@@ -25,6 +25,7 @@
     /**
      * @brief Handles line width slider input events.
      * @param e DOM Event from range input.
+     * @param e:Event
      */
     function updateLineWidth(e: Event) {
         const input = e.target as HTMLInputElement;
@@ -36,6 +37,7 @@
     /**
      * @brief Updates the stroke pattern for line rendering.
      * @param style The selected stroke pattern.
+     * @param style:
      */
     function updateLineStyle(style: 'solid' | 'dashed' | 'dotted') {
         Logger.debug('StylePopover', `Updating line style to ${style} for expression ${expression.id}`);
@@ -45,6 +47,7 @@
     /**
      * @brief Updates the geometric shape used for point rendering.
      * @param style The selected point shape.
+     * @param style:
      */
     function updatePointStyle(style: 'circle' | 'cross' | 'diamond') {
         Logger.debug('StylePopover', `Updating point style to ${style} for expression ${expression.id}`);

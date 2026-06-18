@@ -25,7 +25,6 @@ export interface GLSLCompilationResult {
  */
 export function compileGLSL(
   node: any,
-  isComplex: boolean = false,
 ): GLSLCompilationResult {
   Logger.debug("GLSLCompiler", "Initiating GLSL compilation for an AST node.");
   const uniforms = new Set<string>();
@@ -41,19 +40,19 @@ export function compileGLSL(
     switch (n.type) {
       case "ConstantNode": {
         const val = n.value.toString();
+        if (val === "NaN") {
+            return `(0.0/0.0)`;
+        }
         let fVal = val;
         if (!val.includes(".") && !val.includes("e")) fVal = val + ".0";
-        if (isComplex) return `vec2(${fVal}, 0.0)`;
         return fVal;
       }
       case "SymbolNode": {
         const name = n.name;
         if (name === "x" || name === "y" || name === "z") {
-          if (isComplex) return `z`;
           return name;
         }
         if (name === "i") {
-          if (isComplex) return `vec2(0.0, 1.0)`;
           return name;
         }
         let cVal = name;
@@ -61,17 +60,13 @@ export function compileGLSL(
         else if (name === "pi" || name === "PI") cVal = "3.141592653589793";
         else uniforms.add(name);
         if (name === "NaN") {
-          if (isComplex) return `vec2(0.0/0.0)`;
           return `(0.0/0.0)`;
         }
 
-        if (isComplex) return `vec2(${cVal}, 0.0)`;
         return cVal;
       }
       case "OperatorNode": {
         if (n.fn === "pow") {
-          if (isComplex)
-            return `c_pow(${traverse(n.args[0])}, ${traverse(n.args[1])})`;
           return `pow(${traverse(n.args[0])}, ${traverse(n.args[1])})`;
         }
 
@@ -89,13 +84,7 @@ export function compileGLSL(
         if (n.op === "and") return `(${left} && ${right})`;
         if (n.op === "or") return `(${left} || ${right})`;
 
-        if (isComplex) {
-          if (n.op === "*") return `c_mul(${left}, ${right})`;
-          if (n.op === "/") return `c_div(${left}, ${right})`;
-          // + and - are natively supported for vec2 in GLSL
-          return `(${left} ${n.op} ${right})`;
-        }
-
+        if (n.op === "^") return `pow(${left}, ${right})`;
         return `(${left} ${n.op} ${right})`;
       }
       case "ConditionalNode": {
@@ -116,13 +105,9 @@ export function compileGLSL(
           acos: "acos",
           atan: "atan",
           atan2: "atan",
-          sinh: "sinh",
-          cosh: "cosh",
-          tanh: "tanh",
           sqrt: "sqrt",
           exp: "exp",
           log: "log",
-          log10: "log2(x)*0.30102999566",
           abs: "abs",
           ceil: "ceil",
           floor: "floor",
@@ -132,21 +117,12 @@ export function compileGLSL(
           min: "min",
         };
 
-        const complexMap: Record<string, string> = {
-          sin: "c_sin",
-          cos: "c_cos",
-          exp: "c_exp",
-          log: "c_log",
-          sqrt: "c_sqrt",
-        };
 
-        if (isComplex && complexMap[fnName]) {
-          return `${complexMap[fnName]}(${args})`;
-        }
 
-        if (fnName === "log10") {
-          return `(log2(${args}) * 0.30102999566)`;
-        }
+        if (fnName === "log10") return `(log2(${args}) * 0.30102999566)`;
+        if (fnName === "sinh") return `((exp(${args}) - exp(-(${args}))) * 0.5)`;
+        if (fnName === "cosh") return `((exp(${args}) + exp(-(${args}))) * 0.5)`;
+        if (fnName === "tanh") return `((exp(${args}) - exp(-(${args}))) / (exp(${args}) + exp(-(${args}))))`;
 
         if (mathToGlslMap[fnName]) {
           return `${mathToGlslMap[fnName]}(${args})`;

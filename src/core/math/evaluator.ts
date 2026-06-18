@@ -17,6 +17,27 @@ import {
 import { compileGeometry } from "./geometryCompiler";
 import { compileCalculusAndRegression } from "./calculusCompiler";
 
+const AST_LRU_CACHE = new Map<string, any>();
+const MAX_CACHE_SIZE = 500;
+
+function memoizedParse(expr: string) {
+    if (AST_LRU_CACHE.has(expr)) {
+        const node = AST_LRU_CACHE.get(expr);
+        AST_LRU_CACHE.delete(expr);
+        AST_LRU_CACHE.set(expr, node);
+        return node.clone();
+    }
+    const node = parse(expr);
+    if (AST_LRU_CACHE.size >= MAX_CACHE_SIZE) {
+        const firstKey = AST_LRU_CACHE.keys().next().value;
+        if (firstKey !== undefined) {
+            AST_LRU_CACHE.delete(firstKey);
+        }
+    }
+    AST_LRU_CACHE.set(expr, node.clone());
+    return node;
+}
+
 /**
  * @type EquationType
  * @brief Categorization of geometric and mathematical entities.
@@ -35,6 +56,7 @@ export type EquationType =
   | "ellipse"
   | "regression"
   | "action"
+  | "transform"
   | "label"
   | "vectorField"
   | "physicsNode"
@@ -69,6 +91,9 @@ export interface CompiledEquationData {
   ellipseData?: (
     scope: any,
   ) => { cx: number; cy: number; rx: number; ry: number } | null;
+  conicData?: (
+    scope: any,
+  ) => { a: number; b: number; c: number; d: number; e: number; f: number } | null;
   polygonData?: (scope: any) => { x: number; y: number }[] | null;
   circleData?: (scope: any) => { cx: number; cy: number; r: number } | null;
   constantValue?: (scope: any) => any;
@@ -76,6 +101,7 @@ export interface CompiledEquationData {
     scope: any,
   ) => { params: Record<string, number>; rSquared: number } | null;
   actionExecute?: (scope: any) => { target: string; value: any } | null;
+  transformExecute?: (scope: any) => any;
   labelData?: (scope: any) => { x: number; y: number; text: string } | null;
   vectorData?: (
     x: number,
@@ -114,12 +140,7 @@ export interface CompiledEquationData {
  * @param text The mathematical expression string.
  * @returns A CompiledEquationData object, or null if parsing fails.
  */
-export function compileExpression(
-  text: string,
-  customFunctions?: Record<string, { param: string; body: string }>,
-  isComplex: boolean = false,
-  customNames?: Set<string>,
-): CompiledEquationData | null {
+export function compileExpression(text: string, customFunctions?: Record<string, { param: string; body: string }>, customNames?: Set<string>): CompiledEquationData | null {
   if (!text || text.trim() === "") {
     Logger.debug("Evaluator", "Empty text provided for compilation, aborting.");
     return null;
@@ -144,6 +165,24 @@ export function compileExpression(
       name = assignMatch[1].trim();
       exprText = assignMatch[2].trim();
       Logger.debug("Evaluator", `Extracted variable assignment: ${name}`);
+    }
+
+    let parseTarget = exprText;
+    if (exprText.includes('=')) {
+      const parts = exprText.split('=');
+      parseTarget = parts[parts.length - 1].trim();
+    }
+
+    try {
+      extractVars(parse(parseTarget), vars);
+    } catch (e) {}
+
+    if (customNames) {
+      for (const cn of customNames) vars.delete(cn);
+    }
+    
+    if (name && typeof name === "string") {
+      vars.delete(name);
     }
 
     // Preprocess custom functions and implicit multiplication via AST on LHS / RHS
@@ -179,11 +218,18 @@ export function compileExpression(
 
     let result: CompiledEquationData | null = null;
 
-    const geo = compileGeometry(exprText, name, vars);
+    const eqMatchGeo = exprText.match(/^(.*?)(=)(.*)$/);
+    let geoTarget = exprText;
+    let geoName = name;
+    if (eqMatchGeo) {
+        geoName = eqMatchGeo[1].trim();
+        geoTarget = eqMatchGeo[3].trim();
+    }
+    const geo = compileGeometry(geoTarget, geoName, vars);
     if (geo) result = geo;
 
     if (!result) {
-      const calc = compileCalculusAndRegression(exprText, name, vars);
+      const calc = compileCalculusAndRegression(exprText, name, vars, customFunctions);
       if (calc) result = calc;
     }
 
@@ -194,7 +240,10 @@ export function compileExpression(
         const op = eqMatch[2];
         let right = eqMatch[3].trim();
 
-        if (left === "f(x)" && op === "=") left = "y";
+        const leftMatchX = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\(x\)$/);
+        const leftMatchY = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\(y\)$/);
+        if (leftMatchX && op === "=") left = "y";
+        else if (leftMatchY && op === "=") left = "x";
 
         if (op === "->") {
           Logger.debug("Evaluator", "Compiling action representation.");
@@ -269,7 +318,7 @@ export function compileExpression(
 
             let glslData = null;
             try {
-              glslData = compileGLSL(impNode, isComplex);
+              glslData = compileGLSL(impNode);
             } catch (e: any) {
               Logger.warn(
                 "Evaluator",
@@ -296,13 +345,31 @@ export function compileExpression(
             "Compiling implicit equation representation.",
           );
           const implicitStr = `(${left}) - (${right})`;
-          const node = transformDerivatives(parse(implicitStr), customFunctions);
+          let node = transformDerivatives(parse(implicitStr), customFunctions);
+          
+          let hasPolar = false;
+          node.traverse((n: any) => {
+              if (n.isSymbolNode && (n.name === 'r' || n.name === 'theta')) hasPolar = true;
+          });
+          
+          if (hasPolar) {
+              node = node.transform((n: any) => {
+                  if (n.isSymbolNode) {
+                      if (n.name === 'r') return parse('sqrt(x^2 + y^2)');
+                      if (n.name === 'theta') return parse('atan2(y, x)');
+                  }
+                  return n;
+              });
+          }
+          
           extractVars(node, vars);
+          vars.delete("r");
+          vars.delete("theta");
           const code = node.compile();
 
           let glslData = null;
           try {
-            glslData = compileGLSL(node, isComplex);
+            glslData = compileGLSL(node);
           } catch (e: any) {
             Logger.warn(
               "Evaluator",
@@ -320,6 +387,33 @@ export function compileExpression(
             glslExpr: glslData?.glsl,
             glslUniforms: glslData?.uniforms,
           };
+        }
+      }
+    }
+
+    if (!result) {
+      const paraMatch = exprText.match(/^\s*\((.+?)\s*,\s*(.+?)\)\s*$/);
+      if (paraMatch) {
+        Logger.debug("Evaluator", "Compiling parametric curve representation.");
+        try {
+            const xNode = transformDerivatives(parse(paraMatch[1]), customFunctions);
+            const yNode = transformDerivatives(parse(paraMatch[2]), customFunctions);
+            extractVars(xNode, vars);
+            extractVars(yNode, vars);
+            const xCode = xNode.compile();
+            const yCode = yNode.compile();
+            vars.delete("t");
+            result = {
+                name,
+                type: "parametric",
+                vars: Array.from(vars),
+                fnParametric: (val: number, scope: any) => {
+                    return { x: xCode.evaluate({ ...scope, t: val }), y: yCode.evaluate({ ...scope, t: val }) };
+                },
+                paramBounds: [0, 12 * Math.PI]
+            };
+        } catch (e) {
+            Logger.debug("Evaluator", "Failed to compile parametric tuple");
         }
       }
     }

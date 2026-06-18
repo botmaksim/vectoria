@@ -52,6 +52,9 @@ export interface Expression {
   regressionParams?: Record<string, number>;
   regressionRSquared?: number;
 
+  /** @brief Real-time evaluation result string (e.g. geometric equation or numeric evaluation) */
+  substitutedResult?: string;
+
   /** @brief The stroke style pattern utilized when plotting lines. */
   lineStyle?: "solid" | "dashed" | "dotted";
 

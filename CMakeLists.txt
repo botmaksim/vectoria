@@ -27,6 +27,13 @@ add_custom_target(docker-restart
     COMMENT "Restarting Docker container 'vectoria'..."
 )
 
+# Test Shortcut
+add_custom_target(test
+    COMMAND npm run test
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Running vitest tests..."
+)
+
 # Doxygen Shortcut
 add_custom_target(doxygen
     COMMAND doxygen Doxyfile

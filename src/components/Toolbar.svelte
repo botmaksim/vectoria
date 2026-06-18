@@ -14,6 +14,7 @@
     import { settings } from '../state/settings';
     import { Logger } from '../utils/logger';
     import { get } from 'svelte/store';
+    import { toolsRegistry } from '../state/toolRegistry';
 
     let isCollapsed = false;
     let showExportModal = false;
@@ -84,6 +85,46 @@
             reader.readAsText(file);
         };
         input.click();
+    }
+
+    /**
+     * @brief Loads custom user tools
+     */
+    function handleLoadTools() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.vtools,application/json';
+        input.onchange = (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const content = e.target?.result as string;
+                    toolsRegistry.importCustomTools(content);
+                    Logger.info('Toolbar', 'Custom tools loaded successfully.');
+                } catch (err) {
+                    Logger.error('Toolbar', 'Failed to parse tools file.');
+                    alert('Invalid tools file.');
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+
+    /**
+     * @brief Exports currently created custom tools
+     */
+    function handleSaveTools() {
+        const data = toolsRegistry.exportCustomTools();
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'custom_tools.vtools';
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     /**
@@ -218,17 +259,24 @@
         
         <div class="spacer"></div>
         
-        <button class="action-btn" on:click={handleLoad} title="Load Project" aria-label="Load Project">📂</button>
-        <button class="action-btn" on:click={handleSave} title="Save Project" aria-label="Save Project">💾</button>
         <div class="dropdown">
-            <button class="export-btn" title="Export Image" aria-label="Export Image">📷</button>
+            <button class="export-btn" title="Save / Load" aria-label="Save or Load">💾</button>
             <div class="dropdown-content">
                 <div class="dropdown-inner">
-                    <button on:click={() => handleExport(false)}>Export PNG (Solid)</button>
-                    <button on:click={() => handleExport(true)}>Export PNG (Transparent)</button>
-                    <button on:click={handleExportSVG}>Export SVG</button>
-                    <button on:click={handleExportPDF}>Export PDF</button>
-                    <button on:click={() => showExportModal = true}>Export Code</button>
+                    <button on:click={handleSave}>📝 Save Project</button>
+                    <button on:click={handleLoad}>📂 Load Project</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="dropdown">
+            <button class="export-btn" title="Export Project" aria-label="Export Project">📤</button>
+            <div class="dropdown-content">
+                <div class="dropdown-inner">
+                    <button on:click={() => handleExport(true)}>🖼️ Export PNG</button>
+                    <button on:click={handleExportSVG}>📐 Export SVG</button>
+                    <button on:click={handleExportPDF}>📄 Export PDF</button>
+                    <button on:click={() => showExportModal = true}>💻 Export Code (Python/LaTeX)</button>
                 </div>
             </div>
         </div>
@@ -238,11 +286,14 @@
         <button class="action-btn" class:ticker-on={$tickerActive} on:click={() => tickerActive.update(v => !v)} title="Toggle Simulation Ticker" aria-label="Toggle Ticker">
             {#if $tickerActive}⏸️{:else}▶️{/if}
         </button>
-        <button class="action-btn" on:click={settings.toggleGrid} title="Toggle Grid Type" aria-label="Toggle Grid Type">
-            {#if $settings.gridType === 'cartesian'}🕸️{:else}🎯{/if}
-        </button>
-        <button class="action-btn" class:active={$settings.domainColoring} on:click={settings.toggleDomainColoring} title="Toggle Domain Coloring (Complex Plane)" aria-label="Toggle Domain Coloring">
-            🌈
+        <button class="action-btn" on:click={settings.toggleGridType} title="Toggle Grid Mode" aria-label="Toggle Grid">
+            {#if $settings.gridType === 'cartesian'}
+                <span style="font-weight: 900; font-family: monospace;">+</span>
+            {:else if $settings.gridType === 'polar'}
+                <span style="font-weight: 900; font-family: monospace;">⊙</span>
+            {:else}
+                <span style="font-weight: 900; font-family: monospace;">∅</span>
+            {/if}
         </button>
         <button class="theme-btn" on:click={theme.toggle} title="Toggle theme" aria-label="Toggle theme">
             {#if $theme === 'light'}🌙{:else}☀️{/if}
@@ -382,10 +433,6 @@
     button:hover:not(:disabled) {
         background: color-mix(in srgb, var(--text-secondary) 15%, transparent);
         color: var(--text-primary);
-    }
-    button.active {
-        background: var(--accent-color);
-        color: white;
     }
     button:disabled {
         opacity: 0.5;
