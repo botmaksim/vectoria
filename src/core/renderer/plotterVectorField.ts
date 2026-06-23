@@ -112,7 +112,7 @@ export function plotVectorField(
   for (const p of particles) {
     let v;
     try {
-      v = vectorData(p.x, p.y, scope);
+      v = vectorData(p.x, p.y, scope); if (Math.random() < 0.001) console.log("VECTOR DATA:", v);
       if (!v) continue;
     } catch {
       continue;

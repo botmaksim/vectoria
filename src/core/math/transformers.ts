@@ -65,6 +65,18 @@ export function preprocessMathLive(text: string): string {
     "derivative($1($2), $2)"
   );
 
+  // Replace some common LaTeX
+  processed = processed
+    .replace(/\\cdot/g, "*")
+    .replace(/\\times/g, "*")
+    .replace(/\\left\|(.*?)\\right\|/g, "abs($1)")
+    .replace(/\\left/g, "")
+    .replace(/\\right/g, "");
+
+  // Replace dx/dt, dy/dt with dx_dt, dy_dt to treat them as variables for ODEs
+  processed = processed.replace(/\(?d([a-zA-Z])\)?\/\(?dt\)?/g, "d$1_dt");
+  processed = processed.replace(/\(?d([a-zA-Z])\)?\/\(?d([a-zA-Z])\)?/g, "d$1_d$2");
+
   // Removed nerdamer defint processing.
   // Integral evaluation is handled dynamically by calculusCompiler.ts.
 
@@ -98,7 +110,7 @@ export function extractVars(node: any, vars: Set<string>) {
     if (n.isSymbolNode) {
       const name = n.name;
       const isFunction = parent && parent.isFunctionNode && parent.fn === n;
-      const isConstant = ["x", "y", "e", "pi", "i", "phi", "t", "u", "dx", "dy", "dt", "dz", "d"].includes(name);
+      const isConstant = ["x", "y", "e", "pi", "i", "phi", "t", "u", "dx", "dy", "dt", "dz"].includes(name);
 
       if (!isFunction && !isConstant) {
         vars.add(name);
@@ -198,6 +210,29 @@ export function substituteCustomFunctions(
         });
         
         return substituteCustomFunctions(substitutedBody, customFunctions, depth + 1);
+      }
+    }
+    return n;
+  });
+}
+
+/**
+ * @brief Substitutes raw macro aliases (e.g. A = x + y) with their AST definitions.
+ */
+export function substituteMacros(
+  node: any,
+  macros: Record<string, string>,
+  customFunctions: Record<string, { param: string; body: string }> = {},
+  depth: number = 0
+) {
+  if (depth > 20) throw new Error("Maximum macro substitution depth exceeded.");
+  return node.transform(function (n: any) {
+    if (n.isSymbolNode) {
+      const name = n.name;
+      if (macros[name]) {
+        let macroNode = parse(preprocessMathLive(macros[name]));
+        macroNode = substituteCustomFunctions(macroNode, customFunctions);
+        return substituteMacros(macroNode, macros, customFunctions, depth + 1);
       }
     }
     return n;

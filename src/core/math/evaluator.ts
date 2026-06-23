@@ -101,6 +101,7 @@ export interface CompiledEquationData {
     scope: any,
   ) => { params: Record<string, number>; rSquared: number } | null;
   actionExecute?: (scope: any) => { target: string; value: any } | null;
+  evaluatedExpression?: string;
   transformExecute?: (scope: any) => any;
   labelData?: (scope: any) => { x: number; y: number; text: string } | null;
   vectorData?: (
@@ -140,7 +141,7 @@ export interface CompiledEquationData {
  * @param text The mathematical expression string.
  * @returns A CompiledEquationData object, or null if parsing fails.
  */
-export function compileExpression(text: string, customFunctions?: Record<string, { param: string; body: string }>, customNames?: Set<string>): CompiledEquationData | null {
+export function compileExpression(text: string, customFunctions?: Record<string, { param: string; body: string }>, customNames?: Set<string>, macros?: Record<string, string>): CompiledEquationData | null {
   if (!text || text.trim() === "") {
     Logger.debug("Evaluator", "Empty text provided for compilation, aborting.");
     return null;
@@ -154,7 +155,13 @@ export function compileExpression(text: string, customFunctions?: Record<string,
       text = traceMatch[1];
     }
 
+    const originalText = text;
     text = preprocessMathLive(text);
+    console.group(`[Evaluator] compileExpression`);
+    console.log('  Input:', originalText);
+    console.log('  After preprocessMathLive:', text);
+    console.log('  Macros passed in:', JSON.stringify(macros || {}));
+    console.log('  CustomNames passed in:', customNames ? [...customNames] : []);
     const vars = new Set<string>();
 
     let name: string | undefined;
@@ -164,7 +171,9 @@ export function compileExpression(text: string, customFunctions?: Record<string,
     if (assignMatch && !["y", "x", "r", "f(x)"].includes(assignMatch[1].trim())) {
       name = assignMatch[1].trim();
       exprText = assignMatch[2].trim();
-      Logger.debug("Evaluator", `Extracted variable assignment: ${name}`);
+      console.log(`  Extracted name="${name}", exprText="${exprText}"`);
+    } else {
+      console.log(`  No assignment found, exprText="${exprText}"`);
     }
 
     let parseTarget = exprText;
@@ -174,7 +183,10 @@ export function compileExpression(text: string, customFunctions?: Record<string,
     }
 
     try {
-      extractVars(parse(parseTarget), vars);
+      let node = parse(parseTarget);
+      if (customFunctions) node = substituteCustomFunctions(node, customFunctions);
+      if (macros) node = substituteMacros(node, macros, customFunctions);
+      extractVars(node, vars);
     } catch (e) {}
 
     if (customNames) {
@@ -192,25 +204,39 @@ export function compileExpression(text: string, customFunctions?: Record<string,
       const op = eqMatchPre[2];
       let right = eqMatchPre[3].trim();
       
+      let isFuncDecl = false;
+      if (op === "=" && left.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([a-zA-Z_])\s*\)\s*$/)) {
+        isFuncDecl = true;
+      }
+
       try {
-        let leftNode = parse(left);
-        leftNode = substituteCustomFunctions(leftNode, customFunctions || {});
-        leftNode = transformImplicitMultiplication(leftNode, customNames || new Set());
-        left = leftNode.toString();
-      } catch {}
+        if (!isFuncDecl) {
+          let leftNode = parse(left);
+          leftNode = substituteCustomFunctions(leftNode, customFunctions || {});
+          if (macros) leftNode = substituteMacros(leftNode, macros, customFunctions);
+          leftNode = transformImplicitMultiplication(leftNode, customNames || new Set());
+          left = leftNode.toString();
+        }
+      } catch (e) {
+        console.error("Error substituting left:", e);
+      }
 
       try {
         let rightNode = parse(right);
         rightNode = substituteCustomFunctions(rightNode, customFunctions || {});
+        if (macros) rightNode = substituteMacros(rightNode, macros, customFunctions);
         rightNode = transformImplicitMultiplication(rightNode, customNames || new Set());
         right = rightNode.toString();
-      } catch {}
+      } catch (e) {
+        console.error("Error substituting right:", e);
+      }
       
       exprText = `${left} ${op} ${right}`;
     } else {
       try {
         let node = parse(exprText);
         node = substituteCustomFunctions(node, customFunctions || {});
+        if (macros) node = substituteMacros(node, macros, customFunctions);
         node = transformImplicitMultiplication(node, customNames || new Set());
         exprText = node.toString();
       } catch {}
@@ -226,11 +252,11 @@ export function compileExpression(text: string, customFunctions?: Record<string,
         geoTarget = eqMatchGeo[3].trim();
     }
     const geo = compileGeometry(geoTarget, geoName, vars);
-    if (geo) result = geo;
+    if (geo) { console.log('  => geometry', geo.type); result = geo; }
 
     if (!result) {
       const calc = compileCalculusAndRegression(exprText, name, vars, customFunctions);
-      if (calc) result = calc;
+      if (calc) { console.log('  => calculus/regression', calc.type); result = calc; }
     }
 
     if (!result) {
@@ -240,10 +266,15 @@ export function compileExpression(text: string, customFunctions?: Record<string,
         const op = eqMatch[2];
         let right = eqMatch[3].trim();
 
-        const leftMatchX = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\(x\)$/);
-        const leftMatchY = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\(y\)$/);
-        if (leftMatchX && op === "=") left = "y";
-        else if (leftMatchY && op === "=") left = "x";
+        const leftMatchX = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*x\s*\)$/);
+        const leftMatchY = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*y\s*\)$/);
+        if (leftMatchX && op === "=") {
+          left = "y";
+          if (!name) name = leftMatchX[1];
+        } else if (leftMatchY && op === "=") {
+          left = "x";
+          if (!name) name = leftMatchY[1];
+        }
 
         if (op === "->") {
           Logger.debug("Evaluator", "Compiling action representation.");
@@ -297,8 +328,9 @@ export function compileExpression(text: string, customFunctions?: Record<string,
 
           if (op === "=") {
             result = {
-              name,
-              type: "explicit",
+            evaluatedExpression: "= " + node.toString(),
+            name,
+            type: "explicit",
               vars: Array.from(vars),
               fnExplicit: (x: number, scope: any) =>
                 code.evaluate({ ...scope, x }),
@@ -429,30 +461,58 @@ export function compileExpression(text: string, customFunctions?: Record<string,
 
       if (!vars.has("x") && !vars.has("y")) {
         result = {
-          name,
-          type: "explicit",
+            evaluatedExpression: "= " + exprText,
+            name,
+            type: "explicit",
           vars: Array.from(vars),
           constantValue: (scope: any) => codeStandalone.evaluate(scope),
         };
       } else {
-        vars.delete("x");
-        result = {
-          name,
-          type: "explicit",
-          vars: Array.from(vars),
-          fnExplicit: (x: number, scope: any) =>
-            codeStandalone.evaluate({ ...scope, x }),
-        };
+        if (name && (name.includes('_dt') || name.includes('_d'))) {
+          vars.add("x");
+          vars.add("y");
+          
+          let glslData = null;
+          try {
+            glslData = compileGLSL(nodeStandalone);
+          } catch (e: any) {}
+
+          result = {
+              evaluatedExpression: "= " + exprText + " = 0 (Nullcline)",
+              name,
+              type: "implicit",
+              operator: "=",
+              vars: Array.from(vars),
+              fnImplicit: (x: number, y: number, scope: any) =>
+                codeStandalone.evaluate({ ...scope, x, y }),
+              glslExpr: glslData?.glsl,
+              glslUniforms: glslData?.uniforms,
+          };
+        } else {
+          vars.delete("x");
+          result = {
+              evaluatedExpression: "= " + exprText,
+              name,
+              type: "explicit",
+            vars: Array.from(vars),
+            fnExplicit: (x: number, scope: any) =>
+              codeStandalone.evaluate({ ...scope, x }),
+          };
+        }
       }
     }
 
     if (result && isTraced) result.isTraced = true;
+    console.log(`  => FINAL type=${result?.type} name=${result?.name} vars=[${result?.vars}]`);
+    console.groupEnd();
     return result;
   } catch (e: any) {
     Logger.error(
       "Evaluator",
       `Compilation failure during parse stage: ${e.message}`,
     );
+    console.error('[Evaluator] compileExpression THREW:', e);
+    console.groupEnd();
     return null;
   }
 }

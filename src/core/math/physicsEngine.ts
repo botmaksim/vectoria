@@ -36,6 +36,7 @@ export class PhysicsEngine {
   nodes = new Map<string, VerletNode>();
   constraints: VerletConstraint[] = [];
   gravity = { x: 0, y: -9.81 };
+  lastDt: number = 0;
 
   /**
    * @brief Registers or updates a node in the physics engine.
@@ -101,6 +102,7 @@ export class PhysicsEngine {
     Logger.info("PhysicsEngine", "Resetting all nodes and constraints.");
     this.nodes.clear();
     this.constraints = [];
+    this.lastDt = 0;
   }
 
   /**
@@ -115,11 +117,21 @@ export class PhysicsEngine {
     colliders: ((x: number) => number)[] = [],
   ) {
     if (dt > 0.1) dt = 0.1;
+    if (dt <= 0) return;
+
+    // Time-Corrected Verlet (TCV): account for variable delta time safely
+    let timeScale = this.lastDt > 0 ? (dt / this.lastDt) : 1.0;
+    // Strictly bound timescale to prevent velocity explosion when FPS stutters
+    timeScale = Math.min(Math.max(timeScale, 0.8), 1.2);
+    this.lastDt = dt;
+    
+    // Add slight damping to remove accumulated numerical errors
+    const damping = 0.999;
 
     for (const node of this.nodes.values()) {
       if (node.pinned) continue;
-      const vx = node.x - node.oldX;
-      const vy = node.y - node.oldY;
+      const vx = (node.x - node.oldX) * timeScale * damping;
+      const vy = (node.y - node.oldY) * timeScale * damping;
       node.oldX = node.x;
       node.oldY = node.y;
       node.x += vx + this.gravity.x * dt * dt;
@@ -143,28 +155,41 @@ export class PhysicsEngine {
       }
     }
 
+    const stiffness = 0.8; // Relaxation factor to prevent explosions in complex overlapping structures
+
     for (let i = 0; i < iterations; i++) {
       for (const c of this.constraints) {
         const a = this.nodes.get(c.nodeA);
         const b = this.nodes.get(c.nodeB);
         if (!a || !b) continue;
 
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let dist = Math.sqrt(dx * dx + dy * dy);
+        
         if (dist === 0) continue;
 
         const diff = (c.length - dist) / dist;
-        const offsetX = dx * 0.5 * diff;
-        const offsetY = dy * 0.5 * diff;
+        
+        const massA = a.pinned ? 0 : 1;
+        const massB = b.pinned ? 0 : 1;
+        const totalMass = massA + massB;
+        
+        if (totalMass === 0) continue;
+
+        const ratioA = massA / totalMass;
+        const ratioB = massB / totalMass;
+
+        const offsetX = dx * diff * stiffness;
+        const offsetY = dy * diff * stiffness;
 
         if (!a.pinned) {
-          a.x -= offsetX;
-          a.y -= offsetY;
+          a.x -= offsetX * ratioA;
+          a.y -= offsetY * ratioA;
         }
         if (!b.pinned) {
-          b.x += offsetX;
-          b.y += offsetY;
+          b.x += offsetX * ratioB;
+          b.y += offsetY * ratioB;
         }
       }
     }

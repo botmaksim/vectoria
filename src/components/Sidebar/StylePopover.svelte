@@ -8,9 +8,30 @@
     import { expressions } from '../../state/store';
     import type { Expression } from '../../core/types';
     import { Logger } from '../../utils/logger';
+    import { onMount } from 'svelte';
 
     export let expression: Expression;
     export let onClose: () => void;
+    /** Optional anchor element for fixed positioning */
+    export let anchor: HTMLElement | null = null;
+
+    let popoverEl: HTMLDivElement;
+    let top = 0;
+    let left = 0;
+
+    onMount(() => {
+        if (anchor) {
+            const rect = anchor.getBoundingClientRect();
+            top = rect.bottom + 8;
+            left = rect.left;
+            // Clamp horizontally so it doesn't overflow viewport
+            const popoverWidth = 240;
+            const viewportWidth = window.innerWidth;
+            if (left + popoverWidth > viewportWidth - 8) {
+                left = viewportWidth - popoverWidth - 8;
+            }
+        }
+    });
 
     /**
      * @brief Handles color picker input events.
@@ -60,7 +81,7 @@
 </script>
 
 <div role="presentation" class="popover-overlay" on:click={onClose} on:keydown={(e) => e.key === 'Escape' && onClose()}></div>
-<div class="style-popover">
+<div class="style-popover" bind:this={popoverEl} style={anchor ? `top:${top}px; left:${left}px;` : ''}>
     <div class="popover-header">
         <h4>Style Settings</h4>
     </div>
@@ -103,10 +124,7 @@
         z-index: 99;
     }
     .style-popover {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        margin-top: 8px;
+        position: fixed;
         background: var(--bg-surface);
         backdrop-filter: var(--backdrop-blur);
         -webkit-backdrop-filter: var(--backdrop-blur);

@@ -9,6 +9,7 @@
     import { plotExpressions, type CompiledEquation } from '../../core/renderer/plotter';
     import { Camera } from '../../core/renderer/camera';
     import { compileExpression, type EquationType, type CompiledEquationData } from '../../core/math/evaluator';
+    import { preprocessMathLive } from '../../core/math/transformers';
     import { WebGLRenderer } from '../../core/renderer/webglRenderer';
     import { activeTool } from '../../state/tools';
     import { settings } from '../../state/settings';
@@ -26,6 +27,8 @@
         text: string; 
         data: CompiledEquationData | null; 
         domainColoring?: boolean;
+        customFunctionsStr?: string;
+        macrosStr?: string;
     }>();
 
     let isDragging = false;
@@ -105,25 +108,29 @@
     $: {
         const requiredVars = new Set<string>();
         const customFunctions: Record<string, { param: string; body: string }> = {};
+        const macros: Record<string, string> = {};
         const customNames = new Set<string>();
 
-        // 1. Gather custom functions
+        // 1. Gather custom functions and macros
         for (const expr of $expressions) {
-            const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
+            let processedText = preprocessMathLive(expr.text);
+            const match = processedText.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([a-zA-Z_])\s*\)\s*=(.*)$/);
             if (match) {
                 const name = match[1];
                 const param = match[2];
                 const body = match[3].trim();
                 customFunctions[name] = { param, body };
                 customNames.add(name);
-            }
-        }
-
-        // 2. Gather variable assignments
-        for (const expr of $expressions) {
-            const assignMatch = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=(.*)$/);
-            if (assignMatch && !["y", "x", "r", "f(x)"].includes(assignMatch[1].trim())) {
-                customNames.add(assignMatch[1].trim());
+            } else {
+                const assignMatch = processedText.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=(.*)$/);
+                if (assignMatch && !["y", "x", "r", "f(x)"].includes(assignMatch[1].trim())) {
+                    const varName = assignMatch[1].trim();
+                    const rhs = assignMatch[2].trim();
+                    customNames.add(varName);
+                    if (varName.includes('_dt') || varName.includes('_d') || rhs.match(/[a-zA-Z]/)) {
+                        macros[varName] = rhs;
+                    }
+                }
             }
             if (expr.type === 'table') {
                 if (expr.xCol) customNames.add(expr.xCol);
@@ -133,7 +140,7 @@
 
         // 3. Compile expressions and extract variables (filter out defined ones)
         for (const expr of $expressions) {
-            const compiled = compileExpression(expr.text, customFunctions, customNames);
+            const compiled = compileExpression(expr.text, customFunctions, customNames, macros);
             if (compiled && compiled.vars) {
                 compiled.vars.forEach(v => {
                     if (!customNames.has(v) && v !== 't') {
@@ -279,21 +286,32 @@
 
                 const equationsToDraw: CompiledEquation[] = [];
                 const customFunctions: Record<string, { param: string; body: string }> = {};
+                const macros: Record<string, string> = {};
                 const customNames = new Set<string>();
 
                 for (const expr of $expressions) {
-                    const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
+                    let processedText = preprocessMathLive(expr.text);
+                    const match = processedText.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([a-zA-Z_])\s*\)\s*=(.*)$/);
                     if (match) {
                         customFunctions[match[1]] = { param: match[2], body: match[3].trim() };
                         customNames.add(match[1]);
+                    } else {
+                        const assignMatch = processedText.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=(.*)$/);
+                        if (assignMatch && !["y", "x", "r", "f(x)"].includes(assignMatch[1].trim())) {
+                            const varName = assignMatch[1].trim();
+                            const rhs = assignMatch[2].trim();
+                            customNames.add(varName);
+                            if (varName.includes('_dt') || varName.includes('_d') || rhs.match(/[a-zA-Z]/)) {
+                                macros[varName] = rhs;
+                            }
+                        }
                     }
                 }
-                for (const expr of $expressions) {
-                    const assignMatch = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=(.*)$/);
-                    if (assignMatch && !["y", "x", "r", "f(x)"].includes(assignMatch[1].trim())) {
-                        customNames.add(assignMatch[1].trim());
-                    }
-                }
+                console.group('[Vectoria ODE Debug] Macro collection pass');
+                console.log('Macros:', JSON.stringify(macros));
+                console.log('CustomNames:', [...customNames]);
+                console.log('CustomFunctions:', Object.keys(customFunctions));
+                console.groupEnd();
 
                 for (const expr of $expressions) {
                     if (!expr.visible) continue;
@@ -320,10 +338,14 @@
 
                     let cached = compiledCache.get(expr.id);
                     // Also invalidate cache if domainColoring changed
-                    if (!cached || cached.text !== expr.text ) {
-                        const compiled = compileExpression(expr.text, customFunctions, customNames);
+                    const needsRecompile = !cached || cached.text !== expr.text || cached.customFunctionsStr !== JSON.stringify(customFunctions) || cached.macrosStr !== JSON.stringify(macros);
+                    if (needsRecompile) {
+                        const compiled = compileExpression(expr.text, customFunctions, customNames, macros);
+                        console.log(`[Vectoria ODE Debug] compileExpression("${expr.text}") =>`, compiled ? `type=${compiled.type} name=${compiled.name} vars=[${compiled.vars}] hasVectorData=${!!compiled.vectorData} hasFnImplicit=${!!compiled.fnImplicit} hasConstant=${!!compiled.constantValue}` : 'NULL');
                         cached = {
                             text: expr.text,
+                            customFunctionsStr: JSON.stringify(customFunctions),
+                            macrosStr: JSON.stringify(macros),
                             data: compiled,
                             
                         };
@@ -336,7 +358,8 @@
                                 expr.text,
                                 false, // isComplex
                                 customFunctions,
-                                Array.from(customNames)
+                                Array.from(customNames),
+                                macros
                             )
                                 .then((workerResult: any) => {
                                     if (workerResult.success) {
@@ -355,7 +378,7 @@
                         const dataVars = cached!.data.vars || [];
                         const arrayVars = dataVars.filter(v => Array.isArray(currentScope[v]));
                         
-                        if (arrayVars.length > 0 && !['fourier', 'voronoi', 'delaunay'].includes(cached!.data.type)) {
+                        if (arrayVars.length > 0 && !['fourier', 'voronoi', 'delaunay', 'regression'].includes(cached!.data.type)) {
                             // Find the maximum length among the array variables
                             const maxLength = Math.max(...arrayVars.map(v => currentScope[v].length));
                             for (let i = 0; i < maxLength; i++) {
@@ -394,7 +417,8 @@
                                     lineStyle: expr.lineStyle,
                                     pointStyle: expr.pointStyle,
                                     glslUniformsScope: instanceScope, // We'll pass this special property for WebGL to use
-                                    _substitutedResult: expr.substitutedResult
+                                    _substitutedResult: expr.substitutedResult,
+                                    _regressionParams: expr.regressionParams
                                 });
                             }
                         } else {
@@ -405,11 +429,14 @@
                                 lineWidth: expr.lineWidth,
                                 lineStyle: expr.lineStyle,
                                 pointStyle: expr.pointStyle,
-                                _substitutedResult: expr.substitutedResult
+                                _substitutedResult: expr.substitutedResult,
+                                _regressionParams: expr.regressionParams
                             });
                         }
                     }
                 }
+
+                console.log('[Vectoria ODE Debug] equationsToDraw:', equationsToDraw.map(e => `${e.id}:${e.type}(name=${e.name})`));
 
                 // Topological sort/injection of named variables
                 let unresolved = [...equationsToDraw];
@@ -489,18 +516,22 @@
                                 if (!isArrayOrMatrix && isNaN(val as number)) throw new Error('NaN');
                                 if (eq.name) currentScope[eq.name] = val;
                                 
-                                if (isArrayOrMatrix) {
+                                if ((eq as any).evaluatedExpression) {
+                                    resStr = (eq as any).evaluatedExpression;
+                                } else if (isArrayOrMatrix) {
                                     const arr = Array.isArray(val) ? val : val.toArray();
                                     resStr = '= ' + JSON.stringify(arr);
                                 } else {
                                     resStr = `= ${Number(val).toFixed(2)}`;
                                 }
+                            } else if ((eq as any).evaluatedExpression) {
+                                resStr = (eq as any).evaluatedExpression;
                             }
                             if (resStr && resStr !== (eq as any)._substitutedResult) {
                                 expressions.updateSubstitutedResult(eq.id.split('_')[0], resStr);
                             }
                             if (eq.type === 'regression' && eq.regressionSolve) {
-                                const solveData = eq.regressionSolve(currentScope);
+                                const solveData = eq.regressionSolve(currentScope, (eq as any)._regressionParams);
                                 if (solveData) {
                                     for (const [k, v] of Object.entries(solveData.params)) {
                                         currentScope[k] = v;

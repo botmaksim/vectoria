@@ -12,10 +12,11 @@ import {
   transformDerivatives,
   transformImplicitMultiplication,
   substituteCustomFunctions,
+  substituteMacros,
 } from "../math/transformers";
 
 self.onmessage = (e: MessageEvent) => {
-  const { id, exprText, isComplex, customFunctions, customNames } = e.data;
+  const { id, exprText, isComplex, customFunctions, customNames, macros } = e.data;
   try {
     const customNamesSet = new Set<string>(customNames || []);
     let finalExpr = exprText;
@@ -42,6 +43,7 @@ self.onmessage = (e: MessageEvent) => {
 
     let node = parse(finalExpr);
     node = substituteCustomFunctions(node, customFunctions || {});
+    if (macros) node = substituteMacros(node, macros, customFunctions || {});
     node = transformImplicitMultiplication(node, customNamesSet);
     node = transformDerivatives(node, customFunctions);
 

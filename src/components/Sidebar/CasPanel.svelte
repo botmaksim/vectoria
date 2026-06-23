@@ -67,7 +67,7 @@
             const customNames = new Set<string>();
             const currentExprs = get(expressions);
             for (const expr of currentExprs) {
-                const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
+                const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([a-zA-Z_])\s*\)\s*=(.*)$/);
                 if (match) {
                     customFunctions[match[1]] = { param: match[2], body: match[3].trim() };
                     customNames.add(match[1]);

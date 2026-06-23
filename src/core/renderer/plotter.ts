@@ -49,7 +49,7 @@ export interface CompiledEquation {
   circleData?: (scope: any) => { cx: number; cy: number; r: number } | null;
   constantValue?: (scope: any) => any;
   regressionSolve?: (
-    scope: any,
+    scope: any, prevParams?: Record<string, number>
   ) => { params: Record<string, number>; rSquared: number } | null;
   actionExecute?: (scope: any) => { target: string; value: any } | null;
   glslExpr?: string;
@@ -333,6 +333,18 @@ export function plotExpressions(
           } catch {}
         }
       }
+      // ONE-TIME diagnostic log for the vector field
+      console.group('[Plotter] vectorField rendering');
+      console.log('  scope keys:', Object.keys(eqScope));
+      console.log('  scope sample:', {alpha: eqScope.alpha, beta: eqScope.beta, gamma: eqScope.gamma, delta: eqScope.delta});
+      console.log('  odeSpawners:', odeSpawners);
+      try {
+        const testV = eq.vectorData(0.5, 0.5, eqScope);
+        console.log('  vectorData(0.5, 0.5, scope) =>', testV);
+      } catch(e) {
+        console.error('  vectorData test THREW:', e);
+      }
+      console.groupEnd();
       plotVectorField(ctx, camera, eq.vectorData, eq.color, width, height, eqScope, dt, odeSpawners);
     } else if (eq.type === "physicsNode" && eq.physicsData) {
       const result = eq.physicsData(eqScope);

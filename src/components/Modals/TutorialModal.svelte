@@ -196,6 +196,54 @@
             desc_en: 'Calculates the analytical symbolic derivative of expr with respect to variable.',
             desc_ru: 'Находит символьную аналитическую производную выражения по переменной.',
             example: 'derivative(sin(x), x)'
+        },
+        {
+            name: 'Transform',
+            category: 'analysis',
+            syntax: 'Transform(M)',
+            desc_en: 'Applies a global 2D linear transformation matrix to geometric coordinates dynamically.',
+            desc_ru: 'Применяет глобальную матрицу линейного двумерного преобразования к геометрическим координатам.',
+            example: 'Transform([[1, 0.5], [0, 1]])'
+        },
+        {
+            name: 'Polygon',
+            category: 'geometry',
+            syntax: 'Polygon(Point1, Point2, ...)',
+            desc_en: 'Creates a filled polygon connecting the specified sequence of points.',
+            desc_ru: 'Создает закрашенный многоугольник, соединяя указанную последовательность точек.',
+            example: 'Polygon((0,0), (2,0), (1,2))'
+        },
+        {
+            name: 'Label',
+            category: 'geometry',
+            syntax: 'Label(x, y, "Text")',
+            desc_en: 'Renders a custom text label at the specified coordinates.',
+            desc_ru: 'Отображает произвольный текстовый ярлык по заданным координатам.',
+            example: 'Label(2, 3, "My Point")'
+        },
+        {
+            name: 'PhysicsCloth',
+            category: 'physics',
+            syntax: 'PhysicsCloth(startX, startY, rows, cols, spacing, [pinned_i, pinned_j...])',
+            desc_en: 'Creates a 2D cloth lattice simulated via physics constraints. Additional pairs of integers specify pinned node indices.',
+            desc_ru: 'Создает двумерную сетку ткани для физической симуляции. Дополнительные пары чисел задают индексы закрепленных узлов.',
+            example: 'PhysicsCloth(0, 5, 5, 5, 1, 0, 0, 0, 4)'
+        },
+        {
+            name: 'ODE',
+            category: 'calculus',
+            syntax: 'ODE(dx/dt, dy/dt)',
+            desc_en: 'Defines a system of Ordinary Differential Equations. Generates a phase portrait and solves numerically.',
+            desc_ru: 'Задает систему обыкновенных дифференциальных уравнений. Строит фазовый портрет и решает численно.',
+            example: 'ODE(y, -x)'
+        },
+        {
+            name: 'Regression (~)',
+            category: 'analysis',
+            syntax: 'y_1 ~ expr',
+            desc_en: 'Fits parameters to a dataset using statistical regression. Define a table first, then use the ~ operator.',
+            desc_ru: 'Подбирает параметры для набора данных с помощью статистической регрессии. Сначала задайте таблицу, затем используйте оператор ~.',
+            example: 'y_1 ~ a*x_1^2 + b*x_1 + c'
         }
     ];
 

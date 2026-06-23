@@ -19,6 +19,7 @@
     export let expression: Expression;
     let mathFieldRef: any;
     let showStylePopover = false;
+    let colorIndicatorBtn: HTMLButtonElement;
 
     let textRef: HTMLTextAreaElement;
 
@@ -52,7 +53,7 @@
     function handlePlayAction() {
         const customFunctions: Record<string, { param: string; body: string }> = {};
         for (const expr of get(expressions)) {
-            const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
+            const match = expr.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([a-zA-Z_])\s*\)\s*=(.*)$/);
             if (match) {
                 customFunctions[match[1]] = { param: match[2], body: match[3].trim() };
             }
@@ -120,6 +121,7 @@
 <div class="equation-row" class:selected={$selectedExpressionId === expression.id} on:click={() => selectedExpressionId.set(expression.id)}>
     <div class="color-indicator-container">
         <button 
+            bind:this={colorIndicatorBtn}
             class="color-indicator" 
             class:hidden={!expression.visible}
             style="background-color: {expression.visible ? expression.color : 'transparent'}; border-color: {expression.color}" 
@@ -129,7 +131,7 @@
             title="Toggle visibility (Right-click for styles)"
         ></button>
         {#if showStylePopover}
-            <StylePopover {expression} onClose={() => showStylePopover = false} />
+            <StylePopover {expression} onClose={() => showStylePopover = false} anchor={colorIndicatorBtn} />
         {/if}
     </div>
     
@@ -314,40 +316,5 @@
     .stat-row {
         margin-left: 8px;
         margin-bottom: 2px;
-    }
-    .custom-tool-dropdown {
-        position: relative;
-        display: inline-block;
-    }
-    .custom-tool-menu {
-        display: none;
-        position: absolute;
-        right: 0;
-        top: 100%;
-        background-color: var(--bg-surface);
-        min-width: 120px;
-        box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
-        z-index: 100;
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-        overflow: hidden;
-    }
-    .custom-tool-dropdown:hover .custom-tool-menu {
-        display: block;
-    }
-    .custom-tool-menu button {
-        color: var(--text-primary);
-        padding: 8px 12px;
-        text-decoration: none;
-        display: block;
-        width: 100%;
-        text-align: left;
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        font-size: 0.8rem;
-    }
-    .custom-tool-menu button:hover {
-        background-color: var(--bg-surface-hover);
     }
 </style>

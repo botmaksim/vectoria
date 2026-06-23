@@ -136,7 +136,7 @@ export function generateCode(eqs: Expression[], cam: CameraState, mode: string, 
             py += `# --- ${eq.text} ---\n`;
             try {
                 // Check custom function definition: f(x) = ...
-                const funcMatch = eq.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
+                const funcMatch = eq.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([a-zA-Z_])\s*\)\s*=(.*)$/);
                 if (funcMatch) {
                     const funcName = funcMatch[1].trim();
                     const param = funcMatch[2].trim();
@@ -294,7 +294,7 @@ export function generateCode(eqs: Expression[], cam: CameraState, mode: string, 
             tz += `% --- ${eq.text} ---\n`;
             try {
                 // Check custom function definition: f(x) = ...
-                const funcMatch = eq.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\(([a-zA-Z_])\)\s*=(.*)$/);
+                const funcMatch = eq.text.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([a-zA-Z_])\s*\)\s*=(.*)$/);
                 if (funcMatch) {
                     const funcName = funcMatch[1].trim();
                     const param = funcMatch[2].trim();

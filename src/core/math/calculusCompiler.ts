@@ -10,17 +10,19 @@ import type { CompiledEquationData } from "./evaluator";
 
 /**
  * @brief Attempts to compile expressions matching explicit Calculus instructions or statistical Regression functions.
- * @param exprText Mathematical expression string to interrogate.
+ * @param exprTextRaw Mathematical expression string to interrogate.
  * @param name Optional declared name of the mapping (e.g. `f(x)`).
  * @param vars Mutable set grouping parsed independent arguments.
  * @return Compiled equation evaluating logic structures numerically, or null if unmatched.
  */
 export function compileCalculusAndRegression(
-  exprText: string,
+  exprTextRaw: string,
   name: string | undefined,
   vars: Set<string>,
   customFunctions?: Record<string, { param: string; body: string }>,
+  customNames?: Set<string>,
 ): CompiledEquationData | null {
+  const exprText = exprTextRaw.replace(/\\cdot/g, '*').replace(/\\times/g, '*');
   const intMatch = exprText.match(
     /^\s*int\s*\(\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s*\)\s*$/,
   );
@@ -59,18 +61,57 @@ export function compileCalculusAndRegression(
 
     if (op === "~") {
       Logger.debug("CalculusCompiler", "Compiling regression representation.");
+      
+      let rightText = right;
+      const polyMatch = rightText.match(/^\s*polynom\s*\(\s*(\d+)\s*\)\s*$/i);
+      if (polyMatch) {
+        const degree = parseInt(polyMatch[1], 10);
+        let indepVar = "x";
+        const leftMatch = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)/);
+        if (leftMatch) {
+           const lName = leftMatch[1];
+           if (lName.startsWith("y")) {
+               indepVar = lName.replace("y", "x");
+           }
+        }
+        const polyTerms = [];
+        for (let i = 0; i <= degree; i++) {
+           if (i === 0) polyTerms.push(`c_${i}`);
+           else if (i === 1) polyTerms.push(`c_${i} * ${indepVar}`);
+           else polyTerms.push(`c_${i} * ${indepVar}^${i}`);
+        }
+        rightText = polyTerms.join(" + ");
+      }
+
       const lNode = transformDerivatives(parse(left));
-      const rNode = transformDerivatives(parse(right));
-      extractVars(lNode, vars);
-      extractVars(rNode, vars);
+      const rNode = transformDerivatives(parse(rightText));
+      
+      const tempVars = new Set<string>();
+      extractVars(lNode, tempVars);
+      extractVars(rNode, tempVars);
+      
+      const allVars = Array.from(tempVars);
       const lCode = lNode.compile();
       const rCode = rNode.compile();
-      const allVars = Array.from(vars);
+      
+      const exportedVars: string[] = [];
+      const fittedParams: string[] = [];
+      for (const v of allVars) {
+         if (customNames && customNames.has(v)) {
+             exportedVars.push(v);
+             vars.add(v);
+         } else if (v.startsWith("x_") || v.startsWith("y_") || v === "x" || v === "y" || v === "t") {
+             exportedVars.push(v);
+             vars.add(v);
+         } else {
+             fittedParams.push(v);
+         }
+      }
 
       return {
         name,
         type: "regression",
-        vars: allVars,
+        vars: exportedVars,
         fnExplicit: (x: number, scope: any) => {
           const localScope = { ...scope };
           // Find the array-based independent variable and replace it with scalar x for continuous plotting
@@ -81,7 +122,7 @@ export function compileCalculusAndRegression(
           }
           return rCode.evaluate(localScope);
         },
-        regressionSolve: (scope: any) => {
+        regressionSolve: (scope: any, prevParams?: Record<string, number>) => {
           let N = 0;
           for (const v of allVars) {
             if (scope[v] && (Array.isArray(scope[v]) || scope[v].toArray)) {
@@ -92,15 +133,17 @@ export function compileCalculusAndRegression(
           if (N === 0) return null;
 
           const params: Record<string, number> = {};
+          const unknownKeys: string[] = [];
           for (const v of allVars) {
             if (v === 't') continue;
             const val = scope[v];
-            if (val === undefined || (!Array.isArray(val) && !val?.toArray)) {
-              params[v] = val !== undefined ? val : 1.0;
+            
+            if (fittedParams.includes(v)) {
+               params[v] = (prevParams && prevParams[v] !== undefined) ? prevParams[v] : (val !== undefined ? val : 1.0);
+               unknownKeys.push(v);
             }
           }
 
-          const unknownKeys = Object.keys(params);
           if (unknownKeys.length === 0) return null;
 
           const calcLoss = (p: Record<string, number>) => {
@@ -120,9 +163,19 @@ export function compileCalculusAndRegression(
             return loss;
           };
 
-          const lr = 0.01;
+          const lr = 0.2;
+          const beta1 = 0.9;
+          const beta2 = 0.999;
+          const epsilon = 1e-8;
+          let m: Record<string, number> = {};
+          let v_: Record<string, number> = {};
+          for (const k of unknownKeys) {
+             m[k] = 0;
+             v_[k] = 0;
+          }
+          
           let bestLoss = Infinity;
-          for (let step = 0; step < 500; step++) {
+          for (let step = 1; step <= 250; step++) {
             const currentLoss = calcLoss(params);
             bestLoss = currentLoss;
             const grads: Record<string, number> = {};
@@ -130,12 +183,14 @@ export function compileCalculusAndRegression(
             for (const k of unknownKeys) {
               const pPlus = { ...params };
               pPlus[k] += h;
-              const pMinus = { ...params };
-              pMinus[k] -= h;
-              grads[k] = (calcLoss(pPlus) - calcLoss(pMinus)) / (2 * h);
+              grads[k] = (calcLoss(pPlus) - currentLoss) / h;
             }
             for (const k of unknownKeys) {
-              params[k] -= lr * grads[k];
+              m[k] = beta1 * m[k] + (1 - beta1) * grads[k];
+              v_[k] = beta2 * v_[k] + (1 - beta2) * (grads[k] * grads[k]);
+              const mHat = m[k] / (1 - Math.pow(beta1, step));
+              const vHat = v_[k] / (1 - Math.pow(beta2, step));
+              params[k] -= lr * mHat / (Math.sqrt(vHat) + epsilon);
             }
           }
 

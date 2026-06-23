@@ -12,6 +12,7 @@
     
     export let table: Expression;
     let showStylePopover = false;
+    let colorDotBtn: HTMLButtonElement;
     
     /**
      * @brief Handles updates to individual table cells.
@@ -61,9 +62,9 @@
         <div class="col-header">{table.xCol}</div>
         <div class="col-header">
             <div class="color-indicator-container">
-                <button class="color-dot" style="background-color: {table.color}" on:click={() => showStylePopover = !showStylePopover} aria-label="Style settings"></button>
+                <button bind:this={colorDotBtn} class="color-dot" style="background-color: {table.color}" on:click={() => showStylePopover = !showStylePopover} aria-label="Style settings"></button>
                 {#if showStylePopover}
-                    <StylePopover expression={table} onClose={() => showStylePopover = false} />
+                    <StylePopover expression={table} onClose={() => showStylePopover = false} anchor={colorDotBtn} />
                 {/if}
             </div>
             {table.yCol}

@@ -283,5 +283,46 @@ export const PRESETS: Preset[] = [
             { text: 'Voronoi(x_1, y_1)', latex: '\\text{Voronoi}(x_1, y_1)', color: '#3b82f6', lineWidth: 1.5 },
             { text: 'Delaunay(x_1, y_1)', latex: '\\text{Delaunay}(x_1, y_1)', color: '#f59e0b', lineWidth: 1.5 }
         ]
+    },
+    {
+        id: 'van-der-pol',
+        title: 'Van der Pol Oscillator',
+        description: 'Phase portrait of the Van der Pol non-linear oscillator, demonstrating limit cycle behavior.',
+        gradient: 'linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%)',
+        camera: { x: 0, y: 0, zoom: 40 },
+        sliders: {
+            mu: { name: 'mu', value: 1.5, min: 0, max: 5, step: 0.1, isPlaying: false, animSpeed: 1, animDir: 1 }
+        },
+        expressions: [
+            { text: 'dx/dt = y', latex: '\\frac{dx}{dt} = y', color: '#3b82f6' },
+            { text: 'dy/dt = mu * (1 - x^2) * y - x', latex: '\\frac{dy}{dt} = \\mu (1 - x^2) y - x', color: '#ef4444' },
+            { text: 'ODE(dx/dt, dy/dt)', latex: '\\text{ODE}(\\frac{dx}{dt}, \\frac{dy}{dt})', color: '#10b981', lineWidth: 2 }
+        ]
+    },
+    {
+        id: 'rose-curve',
+        title: 'Mathematical Rose',
+        description: 'A beautiful rhodonea curve generated in polar coordinates.',
+        gradient: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+        camera: { x: 0, y: 0, zoom: 60 },
+        sliders: {
+            k: { name: 'k', value: 5, min: 1, max: 20, step: 1, isPlaying: true, animSpeed: 0.2, animDir: 1 }
+        },
+        expressions: [
+            { text: 'r = 5 * cos(k * theta)', latex: 'r = 5 \\cdot \\cos(k \\cdot \\theta)', color: '#ec4899', lineWidth: 2 }
+        ]
+    },
+    {
+        id: 'taylor-series',
+        title: 'Taylor Approximation',
+        description: 'Polynomial approximation of the sine function using Taylor series expansion.',
+        gradient: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+        camera: { x: 0, y: 0, zoom: 40 },
+        expressions: [
+            { text: 'f(x) = sin(x)', latex: 'f(x) = \\sin(x)', color: '#3b82f6', lineWidth: 2 },
+            { text: 'T_1(x) = x', latex: 'T_1(x) = x', color: '#94a3b8', lineWidth: 1 },
+            { text: 'T_3(x) = T_1(x) - x^3 / 6', latex: 'T_3(x) = T_1(x) - \\frac{x^3}{6}', color: '#cbd5e1', lineWidth: 1 },
+            { text: 'T_5(x) = T_3(x) + x^5 / 120', latex: 'T_5(x) = T_3(x) + \\frac{x^5}{120}', color: '#10b981', lineWidth: 2 }
+        ]
     }
 ];
