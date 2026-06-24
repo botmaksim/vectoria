@@ -21,8 +21,7 @@
         </button>
     </div>
     
-    {#if !isCollapsed}
-    <div class="tools-grid">
+    <div class="tools-grid" class:hidden={isCollapsed}>
         {#each $registeredTools as tool}
             <button class:active={$activeTool === tool.id} on:click={() => { 
                 if (tool.action) tool.action(); 
@@ -33,7 +32,6 @@
             </button>
         {/each}
     </div>
-    {/if}
 </div>
 
 <style>
@@ -90,6 +88,11 @@
         gap: 8px;
         align-items: flex-start;
         overflow-y: auto;
+        transition: opacity 0.2s;
+    }
+    .tools-grid.hidden {
+        opacity: 0;
+        pointer-events: none;
     }
     .tools-grid button {
         width: 100%;
@@ -137,16 +140,96 @@
     }
     
     @media (max-width: 768px) {
-        .tools-panel {
-            position: absolute;
-            right: 0;
-            top: 50%;
-            transform: translateY(-50%);
-            height: auto;
-            max-height: 40vh;
-            border-radius: 8px 0 0 8px;
-            border: 1px solid var(--border-color);
-            border-right: none;
+        .tools-panel, .tools-panel.collapsed {
+            position: absolute !important;
+            bottom: 45vh !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 60px !important;
+            max-height: none !important;
+            flex-direction: row !important;
+            border-radius: 0 !important;
+            border-left: none !important;
+            border-right: none !important;
+            border-top: 1px solid var(--border-color) !important;
+            border-bottom: 1px solid var(--border-color) !important;
+            transform: none !important;
+            box-shadow: 0 -4px 10px rgba(0,0,0,0.05) !important;
+            background: rgba(255, 255, 255, 0.95) !important;
+            backdrop-filter: blur(16px) !important;
+            -webkit-backdrop-filter: blur(16px) !important;
+            z-index: 50 !important;
+        }
+        
+        :global([data-theme="dark"]) .tools-panel, :global([data-theme="dark"]) .tools-panel.collapsed {
+            background: rgba(31, 41, 55, 0.95) !important;
+        }
+
+        .tools-panel .panel-header {
+            display: none !important;
+        }
+
+        .tools-panel .tools-grid, .tools-panel.collapsed .tools-grid {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            width: 100% !important;
+            height: 100% !important;
+            padding: 10px 12px !important;
+            gap: 12px !important;
+            -ms-overflow-style: none !important;
+            scrollbar-width: none !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+            align-items: center !important;
+            box-sizing: border-box !important;
+        }
+        
+        .tools-panel .tools-grid::-webkit-scrollbar {
+            display: none !important;
+        }
+
+        .tools-panel .tools-grid button, .tools-panel.collapsed .tools-grid button {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            width: max-content !important;
+            min-width: max-content !important;
+            height: 40px !important;
+            padding: 0 16px !important;
+            justify-content: center !important;
+            border-radius: 20px !important;
+            background-color: var(--bg-surface-hover) !important;
+            flex: 0 0 auto !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+            border: 1px solid transparent !important;
+            white-space: nowrap !important;
+        }
+        
+        .tools-panel .tools-grid button.active, .tools-panel.collapsed .tools-grid button.active {
+            box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-color) 40%, transparent) !important;
+            border-color: var(--accent-color) !important;
+            background-color: color-mix(in srgb, var(--accent-color) 15%, transparent) !important;
+        }
+
+        .tools-panel .tools-grid button .label, .tools-panel.collapsed .tools-grid button .label {
+            display: inline-block !important;
+            font-size: 0.95rem !important;
+            font-weight: 500 !important;
+            margin-left: 8px !important;
+            white-space: nowrap !important;
+        }
+        
+        .tools-panel .tools-grid button .icon, .tools-panel.collapsed .tools-grid button .icon {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: auto !important;
+            height: auto !important;
+            margin-right: 0 !important;
+            font-size: 1.2rem !important;
         }
     }
 </style>
