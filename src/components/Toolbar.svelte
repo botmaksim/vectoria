@@ -520,4 +520,20 @@
         opacity: 1;
         transform: translateX(-50%) translateY(10px);
     }
+
+    @media (max-width: 768px) {
+        .toolbar {
+            padding: 4px 8px;
+            gap: 4px;
+        }
+        .logo {
+            display: none;
+        }
+        .spacer {
+            min-width: 5px;
+        }
+        .github-btn {
+            display: none;
+        }
+    }
 </style>

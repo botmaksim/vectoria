@@ -156,4 +156,16 @@
         overflow-y: auto;
         padding: 20px;
     }
+    
+    @media (max-width: 768px) {
+        .sidebar {
+            width: 100% !important;
+            height: 45vh !important;
+            border-right: none;
+            border-top: 1px solid var(--border-color);
+        }
+        .resizer {
+            display: none;
+        }
+    }
 </style>

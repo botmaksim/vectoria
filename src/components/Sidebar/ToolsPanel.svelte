@@ -135,4 +135,18 @@
         border-color: var(--accent-color);
         color: var(--accent-color);
     }
+    
+    @media (max-width: 768px) {
+        .tools-panel {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            height: auto;
+            max-height: 40vh;
+            border-radius: 8px 0 0 8px;
+            border: 1px solid var(--border-color);
+            border-right: none;
+        }
+    }
 </style>

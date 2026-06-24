@@ -1666,6 +1666,7 @@ let container: HTMLDivElement;
         pointer-events: auto; /* handle all touch/mouse */
         z-index: 2;
         cursor: grab;
+        touch-action: none;
     }
     .canvas-layer:active {
         cursor: grabbing;

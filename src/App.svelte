@@ -110,4 +110,10 @@
         color: var(--text-primary);
         pointer-events: none;
     }
+
+    @media (max-width: 768px) {
+        main {
+            flex-direction: column-reverse;
+        }
+    }
 </style>
