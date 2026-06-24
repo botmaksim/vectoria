@@ -35,6 +35,7 @@ function determinant(m: number[][]): number {
  */
 function toImplicit(l: any) {
   if (!l) return null;
+  if (Array.isArray(l) && l.length > 0) l = l[0];
   if (
     typeof l.a === "number" &&
     typeof l.b === "number" &&
@@ -67,6 +68,42 @@ function toImplicit(l: any) {
       b: dx,
       c: dy * l.x1 - dx * l.y1,
     };
+  }
+  return null;
+}
+
+function toImplicitLine(l: any) {
+  return toImplicit(l);
+}
+
+function toImplicitConic(c: any) {
+  if (!c) return null;
+  if (typeof c.a === 'number' && typeof c.b === 'number' && typeof c.c === 'number' && typeof c.d === 'number' && typeof c.e === 'number' && typeof c.f === 'number') {
+    return c;
+  }
+  if (typeof c.cx === 'number' && typeof c.cy === 'number') {
+    if (typeof c.r === 'number') {
+      return {
+        a: 1,
+        b: 0,
+        c: 1,
+        d: -2 * c.cx,
+        e: -2 * c.cy,
+        f: c.cx * c.cx + c.cy * c.cy - c.r * c.r
+      };
+    }
+    if (typeof c.rx === 'number' && typeof c.ry === 'number') {
+      const rx2 = c.rx * c.rx;
+      const ry2 = c.ry * c.ry;
+      return {
+        a: ry2,
+        b: 0,
+        c: rx2,
+        d: -2 * c.cx * ry2,
+        e: -2 * c.cy * rx2,
+        f: c.cx * c.cx * ry2 + c.cy * c.cy * rx2 - rx2 * ry2
+      };
+    }
   }
   return null;
 }
@@ -174,9 +211,12 @@ export function compileGeometry(
             const curve = curveCode.evaluate(scope);
             
             // Project (px, py) onto the curve
-            const isLine = (o: any) => o && (typeof o.px === "number" || typeof o.a === "number");
+            const isLine = (o: any) => {
+                if (Array.isArray(o) && o.length > 0) o = o[0];
+                return o && (typeof o.px === "number" || (typeof o.a === "number" && typeof o.f !== "number"));
+            };
             if (isLine(curve)) {
-                const l = curve;
+                let l = Array.isArray(curve) && curve.length > 0 ? curve[0] : curve;
                 if (typeof l.px === "number") {
                     const l2 = l.dx*l.dx + l.dy*l.dy;
                     if (l2 === 0) return { x: l.px, y: l.py };
@@ -188,6 +228,12 @@ export function compileGeometry(
                     const dist = (l.a * px + l.b * py + l.c) / norm;
                     return { x: px - l.a * dist, y: py - l.b * dist };
                 }
+            } else if (curve && typeof curve.x1 === "number" && typeof curve.x2 === "number") {
+                const l2 = (curve.x1 - curve.x2)**2 + (curve.y1 - curve.y2)**2;
+                if (l2 === 0) return { x: curve.x1, y: curve.y1 };
+                let t = ((px - curve.x1) * (curve.x2 - curve.x1) + (py - curve.y1) * (curve.y2 - curve.y1)) / l2;
+                t = Math.max(0, Math.min(1, t));
+                return { x: curve.x1 + t * (curve.x2 - curve.x1), y: curve.y1 + t * (curve.y2 - curve.y1) };
             } else if (curve && typeof curve.cx === "number") {
                 if (typeof curve.r === "number") {
                     const dx = px - curve.cx;
@@ -293,7 +339,14 @@ export function compileGeometry(
 
       const parsePt = (val: any) => {
         if (val && typeof val.toArray === "function") val = val.toArray();
-        if (Array.isArray(val)) return { x: val[0], y: val[1] };
+        if (Array.isArray(val)) {
+          // Array of {x,y} objects (e.g. multiple intersection points) — take first
+          if (val.length > 0 && val[0] !== null && typeof val[0] === 'object' && typeof val[0].x === 'number') {
+            return { x: val[0].x, y: val[0].y };
+          }
+          // Numeric [x, y] array
+          return { x: val[0], y: val[1] };
+        }
         if (val && typeof val.x === "number") return { x: val.x, y: val.y };
         return null;
       };
@@ -457,6 +510,7 @@ export function compileGeometry(
 
       const getLineData = (o: any) => {
         if (!o) return null;
+        if (Array.isArray(o) && o.length > 0) o = o[0];
         if (
           typeof o.px === "number" &&
           typeof o.py === "number" &&
@@ -492,8 +546,10 @@ export function compileGeometry(
             const A = codes[0].evaluate(scope);
             const B = codes[1].evaluate(scope);
             let pt, line;
-            const isLine = (o: any) =>
-              o && (typeof o.px === "number" || typeof o.a === "number");
+            const isLine = (o: any) => {
+              if (Array.isArray(o) && o.length > 0) o = o[0];
+              return o && (typeof o.px === "number" || typeof o.a === "number");
+            };
             if (isLine(A)) {
               line = A;
               pt = parsePt(B);
@@ -528,11 +584,13 @@ export function compileGeometry(
             const A = codes[0].evaluate(scope);
             const B = codes[1].evaluate(scope);
             let pt, rawLine;
-            const isLineOrSegment = (o: any) =>
-              o &&
+            const isLineOrSegment = (o: any) => {
+              if (Array.isArray(o) && o.length > 0) o = o[0];
+              return o &&
               (typeof o.px === "number" ||
                 typeof o.a === "number" ||
                 typeof o.x1 === "number");
+            };
             if (isLineOrSegment(A)) {
               rawLine = A;
               pt = parsePt(B);
@@ -607,34 +665,49 @@ export function compileGeometry(
           type: "line",
           vars: Array.from(vars),
           lineData: (scope: any) => {
-            let l1 = null,
-              l2 = null;
             if (codes.length === 2) {
-              l1 = toImplicitLine(codes[0].evaluate(scope));
-              l2 = toImplicitLine(codes[1].evaluate(scope));
+              const l1 = toImplicitLine(codes[0].evaluate(scope));
+              const l2 = toImplicitLine(codes[1].evaluate(scope));
+              if (l1 && l2) {
+                const len1 = Math.sqrt(l1.a * l1.a + l1.b * l1.b);
+                const len2 = Math.sqrt(l2.a * l2.a + l2.b * l2.b);
+                if (len1 > 0 && len2 > 0) {
+                  const a1 = l1.a / len1, b1 = l1.b / len1, c1 = l1.c / len1;
+                  const a2 = l2.a / len2, b2 = l2.b / len2, c2 = l2.c / len2;
+                  return [
+                    { a: a1 - a2, b: b1 - b2, c: c1 - c2 },
+                    { a: a1 + a2, b: b1 + b2, c: c1 + c2 },
+                  ];
+                }
+              }
             } else {
               const pt1 = parsePt(codes[0].evaluate(scope));
               const pt2 = parsePt(codes[1].evaluate(scope));
               const pt3 = parsePt(codes[2].evaluate(scope));
               if (pt1 && pt2 && pt3) {
-                l1 = toImplicit({ x1: pt2.x, y1: pt2.y, x2: pt1.x, y2: pt1.y });
-                l2 = toImplicit({ x1: pt2.x, y1: pt2.y, x2: pt3.x, y2: pt3.y });
-              }
-            }
-            if (l1 && l2) {
-              const len1 = Math.sqrt(l1.a * l1.a + l1.b * l1.b);
-              const len2 = Math.sqrt(l2.a * l2.a + l2.b * l2.b);
-              if (len1 > 0 && len2 > 0) {
-                const a1 = l1.a / len1,
-                  b1 = l1.b / len1,
-                  c1 = l1.c / len1;
-                const a2 = l2.a / len2,
-                  b2 = l2.b / len2,
-                  c2 = l2.c / len2;
-                return [
-                  { a: a1 - a2, b: b1 - b2, c: c1 - c2 },
-                  { a: a1 + a2, b: b1 + b2, c: c1 + c2 },
-                ];
+                 const dx1 = pt1.x - pt2.x;
+                 const dy1 = pt1.y - pt2.y;
+                 const len1 = Math.hypot(dx1, dy1);
+                 
+                 const dx2 = pt3.x - pt2.x;
+                 const dy2 = pt3.y - pt2.y;
+                 const len2 = Math.hypot(dx2, dy2);
+                 
+                 if (len1 > 0 && len2 > 0) {
+                     const nx1 = dx1 / len1;
+                     const ny1 = dy1 / len1;
+                     const nx2 = dx2 / len2;
+                     const ny2 = dy2 / len2;
+                     
+                     let bx = nx1 + nx2;
+                     let by = ny1 + ny2;
+                     
+                     if (Math.hypot(bx, by) < 1e-8) {
+                         bx = -ny1;
+                         by = nx1;
+                     }
+                     return { px: pt2.x, py: pt2.y, dx: bx, dy: by };
+                 }
               }
             }
             return null;
@@ -744,143 +817,148 @@ export function compileGeometry(
         };
       }
 
-      if (fnName === "tangent" && args.length === 2) {
-        Logger.debug("GeometryCompiler", "Compiling Tangent representation.");
-        const codes = compileArgs();
-        return {
-          name,
-          type: "line",
-          vars: Array.from(vars),
-          lineData: (scope: any) => {
-            const o1 = codes[0].evaluate(scope);
-            const o2 = codes[1].evaluate(scope);
-            
-            const pt = o1 && typeof o1.x === 'number' ? o1 : (o2 && typeof o2.x === 'number' ? o2 : null);
-            const l1 = toImplicitLine(o1);
-            const l2 = toImplicitLine(o2);
-            const line = l1 || l2;
-            const c1 = toImplicitConic(o1);
-            const c2 = toImplicitConic(o2);
-            
-            // Tangent to Conic from Point (polar line intersection)
-            if (pt && c1) {
-                // Polar line: (A x0 + B/2 y0 + D/2) x + (C y0 + B/2 x0 + E/2) y + (D/2 x0 + E/2 y0 + F) = 0
+      /** @brief Helper: compute all tangent lines from a point to a conic, or from point on conic. */
+      const computeTangentLines = (o1: any, o2: any): any | null => {
+            const parsedPt1 = parsePt(o1);
+            const parsedPt2 = parsePt(o2);
+            const c1i = toImplicitConic(o1);
+            const c2i = toImplicitConic(o2);
+            const l1i = toImplicitLine(o1);
+            const l2i = toImplicitLine(o2);
+            const lineArg = l1i || l2i;
+
+            let pt: {x:number, y:number} | null = null;
+            let conic: any = null;
+            if (parsedPt1 && c2i) { pt = parsedPt1; conic = c2i; }
+            else if (parsedPt2 && c1i) { pt = parsedPt2; conic = c1i; }
+
+            if (pt && conic) {
                 const px = pt.x, py = pt.y;
-                const L_a = c1.a * px + (c1.b/2) * py + c1.d/2;
-                const L_b = c1.c * py + (c1.b/2) * px + c1.e/2;
-                const L_c = (c1.d/2) * px + (c1.e/2) * py + c1.f;
-                // Now find intersections of line (L_a x + L_b y + L_c = 0) and conic c1.
-                // Using the analytical line-conic intersection logic
-                const pts = [];
+                const L_a = conic.a * px + (conic.b/2) * py + conic.d/2;
+                const L_b = conic.c * py + (conic.b/2) * px + conic.e/2;
+                const L_c = (conic.d/2) * px + (conic.e/2) * py + conic.f;
+                if (Math.hypot(L_a, L_b) < 1e-10) return null;
+
+                // Check if point is ON conic
+                const F_val = conic.a*px*px + conic.b*px*py + conic.c*py*py + conic.d*px + conic.e*py + conic.f;
+                const Gx = 2*conic.a*px + conic.b*py + conic.d;
+                const Gy = 2*conic.c*py + conic.b*px + conic.e;
+                const gradMag = Math.hypot(Gx, Gy);
+                const distToConic = gradMag > 1e-10 ? Math.abs(F_val) / gradMag : Math.abs(F_val);
+                if (distToConic < 1e-3) {
+                    return { a: L_a, b: L_b, c: L_c }; // single tangent at point on conic
+                }
+
+                // External point: chord of contact intersections → two tangent lines
+                const tangentPts: {x:number, y:number}[] = [];
                 if (Math.abs(L_b) > Math.abs(L_a)) {
                     const m = -L_a/L_b, k = -L_c/L_b;
-                    const A = c1.a + c1.b*m + c1.c*m*m;
-                    const B = c1.b*k + 2*c1.c*m*k + c1.d + c1.e*m;
-                    const C = c1.c*k*k + c1.e*k + c1.f;
+                    const A = conic.a + conic.b*m + conic.c*m*m;
+                    const B = conic.b*k + 2*conic.c*m*k + conic.d + conic.e*m;
+                    const C = conic.c*k*k + conic.e*k + conic.f;
                     const delta = B*B - 4*A*C;
-                    if (delta >= 0) {
+                    if (delta >= 0 && Math.abs(A) > 1e-10) {
                         const x1 = (-B + Math.sqrt(delta))/(2*A);
                         const x2 = (-B - Math.sqrt(delta))/(2*A);
-                        pts.push({x: x1, y: m*x1 + k});
-                        if (delta > 1e-8) pts.push({x: x2, y: m*x2 + k});
+                        tangentPts.push({x: x1, y: m*x1 + k});
+                        if (delta > 1e-8) tangentPts.push({x: x2, y: m*x2 + k});
                     }
-                } else {
-                    if (Math.abs(L_a) > 1e-10) {
-                        const m = -L_b/L_a, k = -L_c/L_a;
-                        const A = c1.c + c1.b*m + c1.a*m*m;
-                        const B = c1.b*k + 2*c1.a*m*k + c1.e + c1.d*m;
-                        const C = c1.a*k*k + c1.d*k + c1.f;
-                        const delta = B*B - 4*A*C;
-                        if (delta >= 0) {
-                            const y1 = (-B + Math.sqrt(delta))/(2*A);
-                            const y2 = (-B - Math.sqrt(delta))/(2*A);
-                            pts.push({x: m*y1 + k, y: y1});
-                            if (delta > 1e-8) pts.push({x: m*y2 + k, y: y2});
-                        }
+                } else if ($activeTool === 'tangent') {
+                     const target = clickedLineName || clickedCurveName || ptName;
+                     const src = tangentStartPoint;
+                     tangentStartPoint = null;
+                     // Create two indexed expressions so each tangent is an independent line object.
+                     // If only one tangent exists (point on conic), the second expression evaluates to null silently.
+                     const n1 = autoName('L');
+                     const n2 = autoName('L');
+                     expressions.addExpression(`${n1} = Tangent(${src}, ${target}, 1)`);
+                     expressions.addExpression(`${n2} = Tangent(${src}, ${target}, 2)`);
+                } else if (Math.abs(L_a) > 1e-10) {
+                    const m = -L_b/L_a, k = -L_c/L_a;
+                    const A = conic.c + conic.b*m + conic.a*m*m;
+                    const B = conic.b*k + 2*conic.a*m*k + conic.e + conic.d*m;
+                    const C = conic.a*k*k + conic.d*k + conic.f;
+                    const delta = B*B - 4*A*C;
+                    if (delta >= 0 && Math.abs(A) > 1e-10) {
+                        const y1 = (-B + Math.sqrt(delta))/(2*A);
+                        const y2 = (-B - Math.sqrt(delta))/(2*A);
+                        tangentPts.push({x: m*y1 + k, y: y1});
+                        if (delta > 1e-8) tangentPts.push({x: m*y2 + k, y: y2});
                     }
                 }
-                const lines = pts.map(p => {
-                    const dx = p.x - px;
-                    const dy = p.y - py;
-                    return { px, py, dx, dy };
-                });
-                return lines.length === 1 ? lines[0] : (lines.length ? lines : null);
+                if (tangentPts.length === 0) return null;
+                const tLines = tangentPts.map(p => ({ px, py, dx: p.x - px, dy: p.y - py }));
+                return tLines.length === 1 ? tLines[0] : tLines;
             }
-            
+
             // Tangent to Conic parallel to Line
-            if (line && c1) {
-                // Parallel to ax + by + c = 0 means tangent is ax + by + k = 0
-                // Dual conic equation involves a, b, c.
-                // Or simply substitute y = (-a/b)*x - k/b into conic, set discriminant to 0, solve for k.
-                if (Math.abs(line.b) > 1e-10) {
-                    const m = -line.a / line.b;
-                    // c1.a x^2 + c1.b x(mx+k) + c1.c(mx+k)^2 + c1.d x + c1.e(mx+k) + c1.f = 0
-                    // A x^2 + B x + C = 0
-                    // A = a + bm + cm^2
-                    // B = bk + 2cmk + d + em = (b + 2cm)k + (d + em)
-                    // C = ck^2 + ek + f
-                    const A = c1.a + c1.b*m + c1.c*m*m;
-                    const b1 = c1.b + 2*c1.c*m;
-                    const b2 = c1.d + c1.e*m;
-                    // B = b1*k + b2
-                    // C = c1.c*k^2 + c1.e*k + c1.f
-                    // Discriminant = (b1*k + b2)^2 - 4*A*(c1.c*k^2 + c1.e*k + c1.f) = 0
-                    // (b1^2 - 4*A*c1.c)k^2 + (2*b1*b2 - 4*A*c1.e)k + (b2^2 - 4*A*c1.f) = 0
-                    const Q_a = b1*b1 - 4*A*c1.c;
-                    const Q_b = 2*b1*b2 - 4*A*c1.e;
-                    const Q_c = b2*b2 - 4*A*c1.f;
+            if (lineArg && (c1i || c2i)) {
+                const co = c1i || c2i;
+                if (Math.abs(lineArg.b) > 1e-10) {
+                    const m = -lineArg.a / lineArg.b;
+                    const A = co.a + co.b*m + co.c*m*m;
+                    const b1 = co.b + 2*co.c*m;
+                    const b2 = co.d + co.e*m;
+                    const Q_a = b1*b1 - 4*A*co.c;
+                    const Q_b = 2*b1*b2 - 4*A*co.e;
+                    const Q_c = b2*b2 - 4*A*co.f;
                     const delta = Q_b*Q_b - 4*Q_a*Q_c;
                     if (delta >= 0 && Math.abs(Q_a) > 1e-10) {
                         const k1 = (-Q_b + Math.sqrt(delta))/(2*Q_a);
                         const k2 = (-Q_b - Math.sqrt(delta))/(2*Q_a);
-                        // Tangent lines: line.a * x + line.b * y + (-k1*line.b) = 0
-                        // k is the intercept y = mx + k, so a x + b y - b k = 0
-                        const l1_c = -line.b * k1;
-                        const l2_c = -line.b * k2;
-                        return [{a: line.a, b: line.b, c: l1_c}, {a: line.a, b: line.b, c: l2_c}];
+                        return [{a: lineArg.a, b: lineArg.b, c: -lineArg.b * k1}, {a: lineArg.a, b: lineArg.b, c: -lineArg.b * k2}];
                     } else if (Math.abs(Q_a) <= 1e-10 && Math.abs(Q_b) > 1e-10) {
-                        // Linear in k (e.g. parabola)
-                        const k1 = -Q_c / Q_b;
-                        return {a: line.a, b: line.b, c: -line.b * k1};
+                        return {a: lineArg.a, b: lineArg.b, c: -lineArg.b * (-Q_c/Q_b)};
                     }
                 } else {
-                    // Vertical line x = k
-                    // c1.a k^2 + c1.b k y + c1.c y^2 + c1.d k + c1.e y + c1.f = 0
-                    // c1.c y^2 + (c1.b k + c1.e) y + (c1.a k^2 + c1.d k + c1.f) = 0
-                    // Delta = (b k + e)^2 - 4*c*(a k^2 + d k + f) = 0
-                    const Q_a = c1.b*c1.b - 4*c1.c*c1.a;
-                    const Q_b = 2*c1.b*c1.e - 4*c1.c*c1.d;
-                    const Q_c = c1.e*c1.e - 4*c1.c*c1.f;
+                    const Q_a = co.b*co.b - 4*co.c*co.a;
+                    const Q_b = 2*co.b*co.e - 4*co.c*co.d;
+                    const Q_c = co.e*co.e - 4*co.c*co.f;
                     const delta = Q_b*Q_b - 4*Q_a*Q_c;
                     if (delta >= 0 && Math.abs(Q_a) > 1e-10) {
                         const k1 = (-Q_b + Math.sqrt(delta))/(2*Q_a);
                         const k2 = (-Q_b - Math.sqrt(delta))/(2*Q_a);
                         return [{a: 1, b: 0, c: -k1}, {a: 1, b: 0, c: -k2}];
                     } else if (Math.abs(Q_a) <= 1e-10 && Math.abs(Q_b) > 1e-10) {
-                        const k1 = -Q_c / Q_b;
-                        return {a: 1, b: 0, c: -k1};
+                        return {a: 1, b: 0, c: -(-Q_c/Q_b)};
                     }
                 }
-                return null;
             }
-            
-            // Common tangents of two conics is too heavy for simple algebraic expansion here,
-            // normally involves finding roots of degree 4 polynomial. We will fall back to
-            // an approximate method or return null if they aren't circles.
-            if (c1 && c2 && c1 !== c2) {
-                // If they are circles, we can easily find common tangents
-                const isCirc = (c:any) => Math.abs(c.a - c.c) < 1e-8 && Math.abs(c.b) < 1e-8;
-                if (isCirc(c1) && isCirc(c2)) {
-                    const cx1 = -c1.d/(2*c1.a), cy1 = -c1.e/(2*c1.a);
-                    const r1 = Math.sqrt(cx1*cx1 + cy1*cy1 - c1.f/c1.a);
-                    const cx2 = -c2.d/(2*c2.a), cy2 = -c2.e/(2*c2.a);
-                    const r2 = Math.sqrt(cx2*cx2 + cy2*cy2 - c2.f/c2.a);
-                    // Standard circle common tangent solver could be added here
-                    // For brevity, skipping the full 4 common tangents formula.
-                }
-            }
-            
             return null;
+      };
+
+      // Tangent(P, curve) — returns all tangent lines (may be array for external point)
+      if (fnName === "tangent" && args.length === 2) {
+        Logger.debug("GeometryCompiler", "Compiling Tangent (2-arg) representation.");
+        const codes = compileArgs();
+        return {
+          name,
+          type: "line",
+          vars: Array.from(vars),
+          lineData: (scope: any) => {
+            return computeTangentLines(codes[0].evaluate(scope), codes[1].evaluate(scope));
+          },
+        };
+      }
+
+      // Tangent(P, curve, n) — returns only the nth tangent line (1-indexed)
+      // This allows each tangent to be its own independent line expression.
+      if (fnName === "tangent" && args.length === 3) {
+        Logger.debug("GeometryCompiler", "Compiling Tangent (3-arg indexed) representation.");
+        const codes = compileArgs();
+        return {
+          name,
+          type: "line",
+          vars: Array.from(vars),
+          lineData: (scope: any) => {
+            const idx = Math.round(codes[2].evaluate(scope)) - 1; // 1-indexed → 0-indexed
+            const all = computeTangentLines(codes[0].evaluate(scope), codes[1].evaluate(scope));
+            if (all === null) return null;
+            if (!Array.isArray(all)) {
+                // single line (point on conic)
+                return idx === 0 ? all : null;
+            }
+            return all[idx] ?? null;
           },
         };
       }

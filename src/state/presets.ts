@@ -22,7 +22,7 @@ export const PRESETS: Preset[] = [
             { text: 'A = [-4, -2]', latex: 'A = [-4, -2]', color: '#ef4444' },
             { text: 'c1 = Circle(A, 4)', latex: 'c1 = \\text{Circle}(A, 4)', color: '#3b82f6', lineWidth: 2 },
             { text: 'P = PointOn(c1, 0, 2)', latex: 'P = \\text{PointOn}(c1, 0, 2)', color: '#10b981' },
-            { text: 'c2 = x^2/16 + y^2/9 = 1', latex: '\\\frac{x^2}{16} + \\frac{y^2}{9} = 1', color: '#8b5cf6', lineWidth: 2 },
+            { text: 'c2 = x^2/16 + y^2/9 = 1', latex: '\\frac{x^2}{16} + \\frac{y^2}{9} = 1', color: '#8b5cf6', lineWidth: 2 },
             { text: 'I = Intersect(c1, c2)', latex: 'I = \\text{Intersect}(c1, c2)', color: '#f59e0b' },
             { text: 'L = Line(A, P)', latex: 'L = \\text{Line}(A, P)', color: '#64748b' },
             { text: 'T = Tangent(L, c2)', latex: 'T = \\text{Tangent}(L, c2)', color: '#ec4899', lineWidth: 2 }

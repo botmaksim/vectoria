@@ -451,10 +451,16 @@
                         try {
                             let resStr = '';
                             if (eq.type === 'point' && eq.pointData) {
-                                const pt = eq.pointData(currentScope);
-                                if (isNaN(pt.x) || isNaN(pt.y)) throw new Error('NaN');
-                                if (eq.name) currentScope[eq.name] = [pt.x, pt.y];
-                                resStr = `= (${pt.x.toFixed(2)}, ${pt.y.toFixed(2)})`;
+                                const ptRaw = eq.pointData(currentScope);
+                                // pointData may return a single {x,y} or an array of {x,y}
+                                const ptArr: {x:number,y:number}[] = Array.isArray(ptRaw) ? ptRaw : (ptRaw ? [ptRaw] : []);
+                                const firstPt = ptArr.find(p => typeof p.x === 'number' && !isNaN(p.x) && typeof p.y === 'number' && !isNaN(p.y));
+                                if (!firstPt) throw new Error('no valid point');
+                                // Store raw result in scope (array or single point)
+                                if (eq.name) currentScope[eq.name] = ptArr.length === 1 ? [firstPt.x, firstPt.y] : ptArr;
+                                resStr = ptArr.length === 1
+                                    ? `= (${firstPt.x.toFixed(2)}, ${firstPt.y.toFixed(2)})`
+                                    : `${ptArr.length} точки`;
                             } else if (eq.type === 'line' && eq.lineData) {
                                 const ld = eq.lineData(currentScope);
                                 if (ld && (typeof ld.px === 'number' || typeof ld.a === 'number' || Array.isArray(ld))) {
@@ -801,20 +807,27 @@
                         try {
                             const ld = eq.lineData(lastScope);
                             if (ld) {
-                                let dist = 1000;
-                                if ('dx' in ld) {
-                                    const l2 = ld.dx*ld.dx + ld.dy*ld.dy;
-                                    const t = ((mathP.x - ld.px) * ld.dx + (mathP.y - ld.py) * ld.dy) / l2;
-                                    const projX = ld.px + t * ld.dx;
-                                    const projY = ld.py + t * ld.dy;
-                                    dist = Math.sqrt((mathP.x - projX)**2 + (mathP.y - projY)**2) * cam.state.zoom;
-                                } else if ('a' in ld) {
-                                    const { a, b, c } = ld;
-                                    dist = Math.abs(a * mathP.x + b * mathP.y + c) / Math.sqrt(a * a + b * b) * cam.state.zoom;
-                                }
-                                if (dist < minDist) {
-                                    minDist = dist;
-                                    clickedId = eq.id;
+                                const checkDist = (l: any) => {
+                                    let dist = 1000;
+                                    if ('dx' in l) {
+                                        const l2 = l.dx*l.dx + l.dy*l.dy;
+                                        const t = ((mathP.x - l.px) * l.dx + (mathP.y - l.py) * l.dy) / l2;
+                                        const projX = l.px + t * l.dx;
+                                        const projY = l.py + t * l.dy;
+                                        dist = Math.sqrt((mathP.x - projX)**2 + (mathP.y - projY)**2) * cam.state.zoom;
+                                    } else if ('a' in l) {
+                                        const { a, b, c } = l;
+                                        dist = Math.abs(a * mathP.x + b * mathP.y + c) / Math.sqrt(a * a + b * b) * cam.state.zoom;
+                                    }
+                                    if (dist < minDist) {
+                                        minDist = dist;
+                                        clickedId = eq.id;
+                                    }
+                                };
+                                if (Array.isArray(ld)) {
+                                    ld.forEach(checkDist);
+                                } else {
+                                    checkDist(ld);
                                 }
                             }
                         } catch {}
@@ -1014,8 +1027,9 @@
             }
 
             if ($activeTool === 'intersect') {
-                if (clickedLineName) {
-                    intersectLines.push(clickedLineName);
+                const targetName = clickedLineName || clickedCurveName;
+                if (targetName && !intersectLines.includes(targetName)) {
+                    intersectLines.push(targetName);
                     if (intersectLines.length === 2) {
                         expressions.addExpression(`${autoName('P')} = Intersect(${intersectLines[0]}, ${intersectLines[1]})`);
                         intersectLines = [];
@@ -1094,11 +1108,11 @@
                             const ceq = lastEquationsToDraw[i];
                             if (ceq.name && ceq.type === 'point' && ceq.pointData) {
                                 try {
-                                    const p = ceq.pointData(lastScope);
-                                    if (Math.hypot(p.x - mathP.x, p.y - mathP.y) * cam.state.zoom < SNAP_PX) {
-                                        ptName = ceq.name;
-                                        break;
-                                    }
+                                    const pRaw = ceq.pointData(lastScope);
+                                    const pts = Array.isArray(pRaw) ? pRaw : (pRaw ? [pRaw] : []);
+                                    const hit = pts.some(p => p && typeof p.x === 'number' &&
+                                        Math.hypot(p.x - mathP.x, p.y - mathP.y) * cam.state.zoom < SNAP_PX);
+                                    if (hit) { ptName = ceq.name; break; }
                                 } catch {}
                             }
                         }
@@ -1126,7 +1140,7 @@
             }
             let ptName = clickedPointName;
             
-            if (!ptName) {
+            if (!ptName && !( $activeTool === 'tangent' && startState && (clickedLineName || clickedCurveName) )) {
                 ptName = autoName('P');
                 expressions.addExpression(`${ptName} = [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}]`);
             }
@@ -1190,11 +1204,17 @@
                 const eq = lastEquationsToDraw[i];
                 if (eq.type === 'point' && eq.pointData) {
                     try {
-                        const p = eq.pointData(lastScope);
-                        const dx = p.x - mathP.x;
-                        const dy = p.y - mathP.y;
-                        const dist = Math.sqrt(dx*dx + dy*dy) * cam.state.zoom;
-                        if (dist < 15) {
+                        const pRaw = eq.pointData(lastScope);
+                        const pts = Array.isArray(pRaw) ? pRaw : (pRaw ? [pRaw] : []);
+                        let hit = false;
+                        for (const p of pts) {
+                            if (!p || typeof p.x !== 'number') continue;
+                            const dx = p.x - mathP.x;
+                            const dy = p.y - mathP.y;
+                            const dist = Math.sqrt(dx*dx + dy*dy) * cam.state.zoom;
+                            if (dist < 15) { hit = true; break; }
+                        }
+                        if (hit) {
                             clickedEquationId = eq.id;
                             break;
                         }
@@ -1345,7 +1365,7 @@
                             for (const l of lines) {
                                 if (typeof l.a === 'number') {
                                     // Implicit line ax + by = c: perpendicular pixel distance
-                                    const dist = Math.abs(l.a * mathP.x + l.b * mathP.y - l.c) / Math.hypot(l.a, l.b) * cam.state.zoom;
+                                    const dist = Math.abs(l.a * mathP.x + l.b * mathP.y + l.c) / Math.hypot(l.a, l.b) * cam.state.zoom;
                                     if (dist < HIT_PX) { hoveredCurve = eq.id; break; }
                                 } else if (typeof l.px === 'number') {
                                     // Parametric line through (px,py) in direction (dx,dy)

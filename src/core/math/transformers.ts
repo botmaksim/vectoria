@@ -133,7 +133,7 @@ export function transformImplicitMultiplication(node: any, customNames: Set<stri
     "perpendicular", "parallel", "anglebisector", "perpendicularbisector",
     "tangent", "conic", "fourier", "voronoi", "delaunay", "transform",
     "int", "derivative", "defint", "diff", "trace",
-    "polygon", "label", "physicsnode", "physicslink", "physicscloth", "vectorfield", "ode"
+    "polygon", "label", "physicsnode", "physicslink", "physicscloth", "vectorfield", "ode", "pointon"
   ]);
 
   return node.transform(function (n: any) {
