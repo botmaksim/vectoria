@@ -28,13 +28,16 @@ export function compileCalculusAndRegression(
   );
   if (intMatch) {
     Logger.debug("CalculusCompiler", "Compiling integral representation.");
-    let fNode = transformDerivatives(parse(intMatch[1]));
-    // Inline user-defined functions (e.g. h(x) = f(g(x))) before compiling.
+    let fNode = transformDerivatives(parse(intMatch[1]), customFunctions);
     if (customFunctions) {
       fNode = substituteCustomFunctions(fNode, customFunctions);
     }
-    const aNode = transformDerivatives(parse(intMatch[2]));
-    const bNode = transformDerivatives(parse(intMatch[3]));
+    let aNode = transformDerivatives(parse(intMatch[2]), customFunctions);
+    let bNode = transformDerivatives(parse(intMatch[3]), customFunctions);
+    if (customFunctions) {
+      aNode = substituteCustomFunctions(aNode, customFunctions);
+      bNode = substituteCustomFunctions(bNode, customFunctions);
+    }
     extractVars(fNode, vars);
     extractVars(aNode, vars);
     extractVars(bNode, vars);
@@ -83,8 +86,12 @@ export function compileCalculusAndRegression(
         rightText = polyTerms.join(" + ");
       }
 
-      const lNode = transformDerivatives(parse(left));
-      const rNode = transformDerivatives(parse(rightText));
+      let lNode = transformDerivatives(parse(left), customFunctions);
+      let rNode = transformDerivatives(parse(rightText), customFunctions);
+      if (customFunctions) {
+        lNode = substituteCustomFunctions(lNode, customFunctions);
+        rNode = substituteCustomFunctions(rNode, customFunctions);
+      }
       
       const tempVars = new Set<string>();
       extractVars(lNode, tempVars);

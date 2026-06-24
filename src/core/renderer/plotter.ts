@@ -162,6 +162,7 @@ export function plotExpressions(
   }
 
   physicsEngine.clearConstraints();
+  const activePhysicsNodes = new Set<string>();
 
   for (const eq of equations) {
     try {
@@ -214,32 +215,28 @@ export function plotExpressions(
     } else if (eq.type === "point" && eq.pointData) {
       const data = eq.pointData(eqScope);
       if (data) {
-        if (eq.isTraced)
-          drawTrace(
-            ctx,
-            camera,
-            eq.id,
-            data.x,
-            data.y,
-            eq.color,
-            width,
-            height,
-          );
-        if (isSelected) {
-          const ptsX = data.x?.toArray ? data.x.toArray() : Array.isArray(data.x) ? data.x : [data.x];
-          const ptsY = data.y?.toArray ? data.y.toArray() : Array.isArray(data.y) ? data.y : [data.y];
+        const items = Array.isArray(data) ? data : [data];
+        for (const item of items) {
+          const ptsX = item.x?.toArray ? item.x.toArray() : Array.isArray(item.x) ? item.x : [item.x];
+          const ptsY = item.y?.toArray ? item.y.toArray() : Array.isArray(item.y) ? item.y : [item.y];
           for (let i = 0; i < Math.max(ptsX.length, ptsY.length); i++) {
             const px = ptsX[i % ptsX.length];
             const py = ptsY[i % ptsY.length];
-            const screenP = camera.mathToScreen(px, py, width, height);
-            ctx.strokeStyle = "rgba(128, 128, 128, 0.5)";
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(screenP.x, screenP.y, 10, 0, Math.PI * 2);
-            ctx.stroke();
+            if (typeof px !== 'number' || typeof py !== 'number') continue;
+            if (eq.isTraced) {
+              drawTrace(ctx, camera, eq.id + (items.length>1 ? "_"+i : ""), px, py, eq.color, width, height);
+            }
+            if (isSelected) {
+              const screenP = camera.mathToScreen(px, py, width, height);
+              ctx.strokeStyle = "rgba(128, 128, 128, 0.5)";
+              ctx.lineWidth = 3;
+              ctx.beginPath();
+              ctx.arc(screenP.x, screenP.y, 10, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+            plotPoint(ctx, camera, {x: px, y: py}, eq.color, width, height, eq.pointStyle);
           }
         }
-        plotPoint(ctx, camera, data, eq.color, width, height, eq.pointStyle);
       }
     } else if (eq.type === "parametric" && eq.fnParametric) {
       plotParametric(
@@ -363,16 +360,17 @@ export function plotExpressions(
              *        only update pinned nodes from the compiled data, letting the
              *        physics engine own the position of free nodes.
              */
-            if (!physicsEngine.nodes.has(item.id)) {
-              physicsEngine.registerNode(item.id, item.x, item.y, item.pinned);
-            } else if (item.pinned) {
-              const node = physicsEngine.nodes.get(item.id)!;
-              node.x = item.x;
-              node.y = item.y;
-              node.oldX = item.x;
-              node.oldY = item.y;
-              node.pinned = true;
-            }
+              if (!physicsEngine.nodes.has(item.id)) {
+                physicsEngine.registerNode(item.id, item.x, item.y, item.pinned);
+              } else if (item.pinned) {
+                const node = physicsEngine.nodes.get(item.id)!;
+                node.x = item.x;
+                node.y = item.y;
+                node.oldX = item.x;
+                node.oldY = item.y;
+                node.pinned = true;
+              }
+              activePhysicsNodes.add(item.id);
             const simNode = physicsEngine.nodes.get(item.id)!;
             const renderX = simNode.x;
             const renderY = simNode.y;
@@ -433,6 +431,13 @@ export function plotExpressions(
         height,
         2
       );
+    }
+  }
+
+  // Purge any physics nodes that are no longer part of active expressions
+  for (const id of physicsEngine.nodes.keys()) {
+    if (!activePhysicsNodes.has(id)) {
+      physicsEngine.nodes.delete(id);
     }
   }
 

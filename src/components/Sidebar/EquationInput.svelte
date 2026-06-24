@@ -37,7 +37,7 @@
 
     // Keep math-field value in sync with external expression updates (e.g. from state recovery or presets)
     $: if (mathFieldRef && expression && expression.latex !== undefined) {
-        if (mathFieldRef.value !== expression.latex) {
+        if (mathFieldRef.value !== expression.latex && document.activeElement !== mathFieldRef) {
             mathFieldRef.value = expression.latex;
         }
     }
@@ -80,7 +80,7 @@
 
     let substitutedResult = '';
     $: {
-        if (expression.substitutedResult) {
+        if (expression.substitutedResult !== undefined) {
             substitutedResult = expression.substitutedResult;
         } else if (expression.type === 'math' && !expression.isText && expression.text) {
             try {

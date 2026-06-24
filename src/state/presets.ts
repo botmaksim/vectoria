@@ -13,13 +13,29 @@ export interface Preset {
 
 export const PRESETS: Preset[] = [
     {
+        id: 'advanced-geometry',
+        title: 'Advanced Geometry',
+        description: 'Showcases intersections between conics, tangent finding, and PointOn curve binding.',
+        gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+        camera: { x: 0, y: 0, zoom: 40 },
+        expressions: [
+            { text: 'A = [-4, -2]', latex: 'A = [-4, -2]', color: '#ef4444' },
+            { text: 'c1 = Circle(A, 4)', latex: 'c1 = \\text{Circle}(A, 4)', color: '#3b82f6', lineWidth: 2 },
+            { text: 'P = PointOn(c1, 0, 2)', latex: 'P = \\text{PointOn}(c1, 0, 2)', color: '#10b981' },
+            { text: 'c2 = x^2/16 + y^2/9 = 1', latex: '\\\frac{x^2}{16} + \\frac{y^2}{9} = 1', color: '#8b5cf6', lineWidth: 2 },
+            { text: 'I = Intersect(c1, c2)', latex: 'I = \\text{Intersect}(c1, c2)', color: '#f59e0b' },
+            { text: 'L = Line(A, P)', latex: 'L = \\text{Line}(A, P)', color: '#64748b' },
+            { text: 'T = Tangent(L, c2)', latex: 'T = \\text{Tangent}(L, c2)', color: '#ec4899', lineWidth: 2 }
+        ]
+    },
+    {
         id: 'fractal-butterfly',
         title: 'Parametric Butterfly',
         description: 'A complex fractal-like pattern generated using polar coordinates.',
         gradient: 'linear-gradient(135deg, #ff0844 0%, #ffb199 100%)',
         camera: { x: 0, y: 0, zoom: 70 },
         expressions: [
-            { text: 'r = e^(sin(theta)) - 2*cos(4*theta) + sin((2*theta - pi)/24)^5', latex: 'r = e^{\\sin(\\theta)} - 2\\cdot\\cos(4\\theta) + \\sin(\\frac{2\\theta - \\pi}{24})^5', color: '#ff0844', lineWidth: 2 }
+            { text: 'r = e^(sin(theta)) - 2*cos(4*theta) + sin((2*theta - pi)/24)^5', latex: 'r = e^{\\sin(\\theta)} - 2\\cdot\\cos(4\\theta) + \\sin(\\\frac{2\\theta - \\pi}{24})^5', color: '#ff0844', lineWidth: 2 }
         ]
     },
     {
@@ -72,7 +88,7 @@ export const PRESETS: Preset[] = [
         camera: { x: 0, y: 0, zoom: 35 },
         expressions: [
             { text: 'f(x) = sin(x)', latex: 'f(x) = \\sin(x)', color: '#3b82f6', lineWidth: 2 },
-            { text: 'g(x) = x^2 / 2', latex: 'g(x) = \\frac{x^2}{2}', color: '#10b981', lineWidth: 2 },
+            { text: 'g(x) = x^2 / 2', latex: 'g(x) = \\\frac{x^2}{2}', color: '#10b981', lineWidth: 2 },
             { text: 'h(x) = f(g(x))', latex: 'h(x) = f(g(x))', color: '#8b5cf6', lineWidth: 2.5 },
             { text: 'y = h\'(x)', latex: 'y = h\'(x)', color: '#ef4444', lineWidth: 2 },
             { text: 'area = int(h(x), -3, 3)', latex: '\\text{area} = \\int_{-3}^{3} h(x) \\, dx', color: '#f59e0b', lineWidth: 1.5 }
@@ -205,9 +221,9 @@ export const PRESETS: Preset[] = [
         },
         expressions: [
             { text: 'f_1(x) = sin(x)', latex: 'f_1(x) = \\sin(x)', color: '#3b82f6', lineWidth: 1 },
-            { text: 'f_3(x) = f_1(x) + sin(3*x)/3', latex: 'f_3(x) = f_1(x) + \\frac{\\sin(3x)}{3}', color: '#10b981', lineWidth: 1.5 },
-            { text: 'f_5(x) = f_3(x) + sin(5*x)/5', latex: 'f_5(x) = f_3(x) + \\frac{\\sin(5x)}{5}', color: '#f59e0b', lineWidth: 2 },
-            { text: 'y = f_5(x) + sin(7*x)/7', latex: 'y = f_5(x) + \\frac{\\sin(7x)}{7}', color: '#ef4444', lineWidth: 3 }
+            { text: 'f_3(x) = f_1(x) + sin(3*x)/3', latex: 'f_3(x) = f_1(x) + \\\frac{\\sin(3x)}{3}', color: '#10b981', lineWidth: 1.5 },
+            { text: 'f_5(x) = f_3(x) + sin(5*x)/5', latex: 'f_5(x) = f_3(x) + \\\frac{\\sin(5x)}{5}', color: '#f59e0b', lineWidth: 2 },
+            { text: 'y = f_5(x) + sin(7*x)/7', latex: 'y = f_5(x) + \\\frac{\\sin(7x)}{7}', color: '#ef4444', lineWidth: 3 }
         ]
     },
     {
@@ -221,9 +237,9 @@ export const PRESETS: Preset[] = [
             { text: 'beta = 4/3', latex: '\\beta = 4/3', color: '#64748b' },
             { text: 'gamma = 1', latex: '\\gamma = 1', color: '#64748b' },
             { text: 'delta = 1', latex: '\\delta = 1', color: '#64748b' },
-            { text: 'dx/dt = alpha*x - beta*x*y', latex: '\\frac{dx}{dt} = \\alpha x - \\beta x y', color: '#3b82f6' },
-            { text: 'dy/dt = delta*x*y - gamma*y', latex: '\\frac{dy}{dt} = \\delta x y - \\gamma y', color: '#ef4444' },
-            { text: 'ODE(dx/dt, dy/dt)', latex: '\\text{ODE}(\\frac{dx}{dt}, \\frac{dy}{dt})', color: '#10b981', lineWidth: 2 }
+            { text: 'dx/dt = alpha*x - beta*x*y', latex: '\\\frac{dx}{dt} = \\alpha x - \\beta x y', color: '#3b82f6' },
+            { text: 'dy/dt = delta*x*y - gamma*y', latex: '\\\frac{dy}{dt} = \\delta x y - \\gamma y', color: '#ef4444' },
+            { text: 'ODE(dx/dt, dy/dt)', latex: '\\text{ODE}(\\\frac{dx}{dt}, \\\frac{dy}{dt})', color: '#10b981', lineWidth: 2 }
         ]
     },
 
@@ -262,7 +278,7 @@ export const PRESETS: Preset[] = [
             d: { name: 'd', value: 3.5, min: 0, max: 10, step: 0.1, isPlaying: false, animSpeed: 1, animDir: 1 }
         },
         expressions: [
-            { text: '((R-r)*cos(t) + d*cos((R-r)/r*t), (R-r)*sin(t) - d*sin((R-r)/r*t))', latex: '((R-r)\\cos(t) + d\\cos(\\frac{R-r}{r}t), (R-r)\\sin(t) - d\\sin(\\frac{R-r}{r}t))', color: '#8b5cf6', lineWidth: 2 }
+            { text: '((R-r)*cos(t) + d*cos((R-r)/r*t), (R-r)*sin(t) - d*sin((R-r)/r*t))', latex: '((R-r)\\cos(t) + d\\cos(\\\frac{R-r}{r}t), (R-r)\\sin(t) - d\\sin(\\\frac{R-r}{r}t))', color: '#8b5cf6', lineWidth: 2 }
         ]
     },
     {
@@ -294,9 +310,9 @@ export const PRESETS: Preset[] = [
             mu: { name: 'mu', value: 1.5, min: 0, max: 5, step: 0.1, isPlaying: false, animSpeed: 1, animDir: 1 }
         },
         expressions: [
-            { text: 'dx/dt = y', latex: '\\frac{dx}{dt} = y', color: '#3b82f6' },
-            { text: 'dy/dt = mu * (1 - x^2) * y - x', latex: '\\frac{dy}{dt} = \\mu (1 - x^2) y - x', color: '#ef4444' },
-            { text: 'ODE(dx/dt, dy/dt)', latex: '\\text{ODE}(\\frac{dx}{dt}, \\frac{dy}{dt})', color: '#10b981', lineWidth: 2 }
+            { text: 'dx/dt = y', latex: '\\\frac{dx}{dt} = y', color: '#3b82f6' },
+            { text: 'dy/dt = mu * (1 - x^2) * y - x', latex: '\\\frac{dy}{dt} = \\mu (1 - x^2) y - x', color: '#ef4444' },
+            { text: 'ODE(dx/dt, dy/dt)', latex: '\\text{ODE}(\\\frac{dx}{dt}, \\\frac{dy}{dt})', color: '#10b981', lineWidth: 2 }
         ]
     },
     {
@@ -321,8 +337,8 @@ export const PRESETS: Preset[] = [
         expressions: [
             { text: 'f(x) = sin(x)', latex: 'f(x) = \\sin(x)', color: '#3b82f6', lineWidth: 2 },
             { text: 'T_1(x) = x', latex: 'T_1(x) = x', color: '#94a3b8', lineWidth: 1 },
-            { text: 'T_3(x) = T_1(x) - x^3 / 6', latex: 'T_3(x) = T_1(x) - \\frac{x^3}{6}', color: '#cbd5e1', lineWidth: 1 },
-            { text: 'T_5(x) = T_3(x) + x^5 / 120', latex: 'T_5(x) = T_3(x) + \\frac{x^5}{120}', color: '#10b981', lineWidth: 2 }
+            { text: 'T_3(x) = T_1(x) - x^3 / 6', latex: 'T_3(x) = T_1(x) - \\\frac{x^3}{6}', color: '#cbd5e1', lineWidth: 1 },
+            { text: 'T_5(x) = T_3(x) + x^5 / 120', latex: 'T_5(x) = T_3(x) + \\\frac{x^5}{120}', color: '#10b981', lineWidth: 2 }
         ]
     }
 ];

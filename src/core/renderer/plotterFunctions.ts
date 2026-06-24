@@ -221,7 +221,12 @@ export function plotIntegral(
   scope: any,
   themeColors: ThemeColors,
 ) {
-  const bounds = boundsFn(scope);
+  let bounds = [NaN, NaN];
+  try {
+    bounds = boundsFn(scope);
+  } catch (e) {
+    // Ignore evaluation errors
+  }
   if (isNaN(bounds[0]) || isNaN(bounds[1])) return;
 
   const minX = Math.min(bounds[0], bounds[1]);
