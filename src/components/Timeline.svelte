@@ -150,4 +150,45 @@
         background: transparent;
         color: inherit;
     }
+
+    @media (max-width: 768px) {
+        .timeline-container {
+            bottom: 85px; /* Above the ToolsPanel which is 60px high + some padding */
+            width: 95%;
+            max-width: 400px;
+        }
+        
+        .timeline-panel {
+            min-width: 0;
+            width: 100%;
+            padding: 10px;
+            gap: 12px;
+        }
+        
+        .speed-control {
+            margin-left: auto;
+        }
+        
+        .speed-control input {
+            width: 60px;
+        }
+        
+        .time-label {
+            min-width: 70px;
+            font-size: 12px;
+        }
+        
+        .max-t {
+            width: 50px;
+        }
+        
+        .controls {
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 4px 10px;
+        }
+    }
 </style>

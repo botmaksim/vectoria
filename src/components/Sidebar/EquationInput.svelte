@@ -23,6 +23,9 @@
 
     let textRef: HTMLTextAreaElement;
 
+    let isFocused = false;
+    let windowWidth = window.innerWidth;
+
     onMount(() => {
         if (expression.type !== 'text' && !expression.isText && mathFieldRef) {
             mathFieldRef.value = expression.latex;
@@ -31,6 +34,10 @@
                 const text = preprocessMathLive(mathFieldRef.getValue('ascii-math'));
                 Logger.debug('EquationInput', `User modified expression ${expression.id}: ${text}`);
                 expressions.updateText(expression.id, text, latex);
+            });
+            mathFieldRef.addEventListener('focusin', () => isFocused = true);
+            mathFieldRef.addEventListener('focusout', () => {
+                setTimeout(() => isFocused = false, 150);
             });
         }
     });
@@ -45,6 +52,14 @@
     function handleTextInput(e: Event) {
         const val = (e.target as HTMLTextAreaElement).value;
         expressions.updateText(expression.id, val, val);
+    }
+
+    function handleTextFocus() {
+        isFocused = true;
+    }
+
+    function handleTextBlur() {
+        setTimeout(() => isFocused = false, 150);
     }
 
     /**
@@ -116,6 +131,8 @@
     }
 </script>
 
+<svelte:window bind:innerWidth={windowWidth} />
+
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div class="equation-row" class:selected={$selectedExpressionId === expression.id} on:click={() => selectedExpressionId.set(expression.id)}>
@@ -142,6 +159,8 @@
             placeholder="Заметка (Markdown)..." 
             value={expression.text} 
             on:input={handleTextInput}
+            on:focus={handleTextFocus}
+            on:blur={handleTextBlur}
         ></textarea>
     {:else}
         <!-- svelte-ignore a11y-unknown-element -->
@@ -174,6 +193,25 @@
             <span>{key} = {value.toFixed(4)}</span>
         </div>
     {/each}
+</div>
+{/if}
+
+{#if isFocused && windowWidth <= 768}
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="mobile-equation-overlay" on:click|preventDefault>
+    <div class="overlay-header">
+        <span>Редактирование</span>
+        <button on:click={() => isFocused = false}>✕</button>
+    </div>
+    <div class="overlay-content">
+        {#if expression.type === 'text' || expression.isText}
+            <div class="overlay-text">{expression.text}</div>
+        {:else}
+            <!-- svelte-ignore a11y-unknown-element -->
+            <math-field class="readonly-math" read-only>{mathFieldRef ? mathFieldRef.value : expression.latex}</math-field>
+        {/if}
+    </div>
 </div>
 {/if}
 
@@ -316,5 +354,73 @@
     .stat-row {
         margin-left: 8px;
         margin-bottom: 2px;
+    }
+    
+    .mobile-equation-overlay {
+        position: fixed;
+        top: 60px;
+        left: 10px;
+        right: 10px;
+        background: rgba(255, 255, 255, 0.95);
+        border: 2px solid var(--accent-color);
+        border-radius: 12px;
+        padding: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+        z-index: 100000;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 40vh;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+    }
+    
+    :global([data-theme="dark"]) .mobile-equation-overlay {
+        background: rgba(31, 41, 55, 0.95);
+    }
+
+    .overlay-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+        text-transform: uppercase;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 6px;
+    }
+
+    .overlay-header button {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 1.2rem;
+        cursor: pointer;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .overlay-content {
+        overflow-y: auto;
+        font-size: 1.2rem;
+        padding: 8px 0;
+    }
+
+    .readonly-math {
+        width: 100%;
+        background: transparent;
+        border: none;
+        color: var(--text-primary);
+        font-size: 1.4rem;
+    }
+
+    .overlay-text {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 1.1rem;
+        color: var(--text-primary);
     }
 </style>
