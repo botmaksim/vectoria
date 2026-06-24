@@ -301,7 +301,8 @@
                             const varName = assignMatch[1].trim();
                             const rhs = assignMatch[2].trim();
                             customNames.add(varName);
-                            if (varName.includes('_dt') || varName.includes('_d') || rhs.match(/[a-zA-Z]/)) {
+                            const isGeom = rhs.match(/^\s*(Segment|PerpendicularBisector|Line|Intersect|Midpoint|Circle|Ellipse|Parallel|Perpendicular|AngleBisector|Tangent|Polygon|Fourier|Voronoi|Delaunay|Conic|Point|PhysicsNode|PhysicsLink|PhysicsCloth|VectorField)\s*\(/i);
+                            if (varName.includes('_dt') || varName.includes('_d') || (rhs.match(/[a-zA-Z]/) && !isGeom)) {
                                 macros[varName] = rhs;
                             }
                         }
@@ -508,7 +509,41 @@
                                 const pd = eq.polygonData(currentScope);
                                 if (pd) {
                                     if (eq.name) currentScope[eq.name] = pd;
-                                    resStr = `Polygon (${pd.length} points)`;
+                                    let area = 0;
+                                    if (pd.length > 2) {
+                                        for (let i = 0; i < pd.length; i++) {
+                                            const j = (i + 1) % pd.length;
+                                            area += pd[i].x * pd[j].y - pd[j].x * pd[i].y;
+                                        }
+                                        area = Math.abs(area) / 2;
+                                    }
+                                    resStr = `Area: ${area.toFixed(2)}`;
+                                }
+                            } else if (eq.type === 'integral' && eq.boundsFn && eq.fnExplicit) {
+                                const bounds = eq.boundsFn(currentScope);
+                                if (!isNaN(bounds[0]) && !isNaN(bounds[1])) {
+                                    const minX = Math.min(bounds[0], bounds[1]);
+                                    const maxX = Math.max(bounds[0], bounds[1]);
+                                    const segments = 200;
+                                    const dx = (maxX - minX) / segments;
+                                    let area = 0;
+                                    const scalarFn = (x: number) => {
+                                        let res = eq.fnExplicit!(x, currentScope);
+                                        if (Array.isArray(res) || res?.toArray) {
+                                            res = Array.isArray(res) ? res[0] : res.toArray()[0];
+                                        }
+                                        return res as number;
+                                    };
+                                    for (let i = 1; i < segments; i++) {
+                                        area += scalarFn(minX + i * dx) * (i % 2 === 0 ? 2 : 4);
+                                    }
+                                    area += scalarFn(minX) + scalarFn(maxX);
+                                    area *= dx / 3;
+                                    if (bounds[0] > bounds[1]) area = -area;
+                                    
+                                    resStr = `Area: ${area.toPrecision(6).replace(/\\.0+$/, '').replace(/\\.$/, '')}`;
+                                } else {
+                                    resStr = 'Area: NaN';
                                 }
                             } else if (eq.constantValue) {
                                 const val = eq.constantValue(currentScope);

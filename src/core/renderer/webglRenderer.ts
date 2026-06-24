@@ -46,7 +46,7 @@ function getFSSource(
         float alpha = 1.0 - smoothstep(1.0, 2.0, dist);
         
         if (alpha <= 0.01) discard;
-        gl_FragColor = vec4(u_color, alpha);
+        gl_FragColor = vec4(u_color, lineAlpha);
         `;
   } else {
     const check = op.includes("<") ? "val < 0.0" : "val > 0.0";

@@ -45,6 +45,9 @@ export interface CompiledEquation {
   ellipseData?: (
     scope: any,
   ) => { cx: number; cy: number; rx: number; ry: number } | null;
+  conicData?: (
+    scope: any,
+  ) => { a: number; b: number; c: number; d: number; e: number; f: number } | null;
   polygonData?: (scope: any) => { x: number; y: number }[] | null;
   circleData?: (scope: any) => { cx: number; cy: number; r: number } | null;
   constantValue?: (scope: any) => any;
@@ -52,12 +55,15 @@ export interface CompiledEquation {
     scope: any, prevParams?: Record<string, number>
   ) => { params: Record<string, number>; rSquared: number } | null;
   actionExecute?: (scope: any) => { target: string; value: any } | null;
+  transformExecute?: (scope: any) => any;
   glslExpr?: string;
   glslUniforms?: string[];
   lineWidth?: number;
   lineStyle?: "solid" | "dashed" | "dotted";
   pointStyle?: "circle" | "cross" | "diamond";
   labelData?: (scope: any) => { x: number; y: number; text: string } | null;
+  _substitutedResult?: string;
+  _regressionParams?: Record<string, number>;
   vectorData?: (
     x: number,
     y: number,

@@ -13,6 +13,7 @@ import {
   transformDerivatives,
   transformImplicitMultiplication,
   substituteCustomFunctions,
+  substituteMacros,
 } from "./transformers";
 import { compileGeometry } from "./geometryCompiler";
 import { compileCalculusAndRegression } from "./calculusCompiler";
@@ -54,6 +55,7 @@ export type EquationType =
   | "circle"
   | "line"
   | "ellipse"
+  | "conic"
   | "regression"
   | "action"
   | "transform"
@@ -213,9 +215,13 @@ export function compileExpression(text: string, customFunctions?: Record<string,
         if (!isFuncDecl) {
           let leftNode = parse(left);
           leftNode = substituteCustomFunctions(leftNode, customFunctions || {});
-          if (macros) leftNode = substituteMacros(leftNode, macros, customFunctions);
-          leftNode = transformImplicitMultiplication(leftNode, customNames || new Set());
-          left = leftNode.toString();
+          if (macros && macros[left.trim()]) {
+              left = "0";
+          } else {
+              if (macros) leftNode = substituteMacros(leftNode, macros, customFunctions);
+              leftNode = transformImplicitMultiplication(leftNode, customNames || new Set());
+              left = leftNode.toString();
+          }
         }
       } catch (e) {
         console.error("Error substituting left:", e);
@@ -251,7 +257,7 @@ export function compileExpression(text: string, customFunctions?: Record<string,
         geoName = eqMatchGeo[1].trim();
         geoTarget = eqMatchGeo[3].trim();
     }
-    const geo = compileGeometry(geoTarget, geoName, vars);
+    const geo = compileGeometry(geoTarget, geoName, vars, macros, customFunctions);
     if (geo) { console.log('  => geometry', geo.type); result = geo; }
 
     if (!result) {
@@ -266,14 +272,18 @@ export function compileExpression(text: string, customFunctions?: Record<string,
         const op = eqMatch[2];
         let right = eqMatch[3].trim();
 
-        const leftMatchX = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*x\s*\)$/);
-        const leftMatchY = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*y\s*\)$/);
-        if (leftMatchX && op === "=") {
-          left = "y";
-          if (!name) name = leftMatchX[1];
-        } else if (leftMatchY && op === "=") {
-          left = "x";
-          if (!name) name = leftMatchY[1];
+        const leftMatch1D = left.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([a-zA-Z_])\s*\)$/);
+        let fnParam = "x";
+        if (leftMatch1D && op === "=") {
+          const funcName = leftMatch1D[1];
+          const paramName = leftMatch1D[2];
+          if (paramName === "y") {
+            left = "x";
+          } else {
+            left = "y";
+          }
+          fnParam = paramName;
+          if (!name) name = funcName;
         }
 
         if (op === "->") {
@@ -325,6 +335,7 @@ export function compileExpression(text: string, customFunctions?: Record<string,
           extractVars(node, vars);
           const code = node.compile();
           vars.delete("x");
+          vars.delete(fnParam);
 
           if (op === "=") {
             result = {
@@ -332,8 +343,13 @@ export function compileExpression(text: string, customFunctions?: Record<string,
             name,
             type: "explicit",
               vars: Array.from(vars),
-              fnExplicit: (x: number, scope: any) =>
-                code.evaluate({ ...scope, x }),
+              fnExplicit: (x: number, scope: any) => {
+                try {
+                  return code.evaluate({ ...scope, [fnParam]: x });
+                } catch (e) {
+                  return NaN;
+                }
+              },
             };
           } else {
             Logger.debug(
@@ -495,8 +511,13 @@ export function compileExpression(text: string, customFunctions?: Record<string,
               name,
               type: "explicit",
             vars: Array.from(vars),
-            fnExplicit: (x: number, scope: any) =>
-              codeStandalone.evaluate({ ...scope, x }),
+            fnExplicit: (x: number, scope: any) => {
+              try {
+                return codeStandalone.evaluate({ ...scope, x });
+              } catch (e) {
+                return NaN;
+              }
+            },
           };
         }
       }
@@ -511,7 +532,7 @@ export function compileExpression(text: string, customFunctions?: Record<string,
       "Evaluator",
       `Compilation failure during parse stage: ${e.message}`,
     );
-    console.error('[Evaluator] compileExpression THREW:', e);
+    console.error('[Evaluator] compileExpression THREW for "' + text + '":', e);
     console.groupEnd();
     return null;
   }

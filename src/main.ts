@@ -3,11 +3,7 @@ import './app.css'
 import App from './App.svelte'
 
 // Configure MathLive fonts path
-declare global {
-  interface Window {
-    MathfieldElement: any;
-  }
-}
+// Configure MathLive fonts path
 window.MathfieldElement = window.MathfieldElement || {};
 window.MathfieldElement.fontsDirectory = '/mathlive-fonts';
 
