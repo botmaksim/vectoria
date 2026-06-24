@@ -496,6 +496,7 @@
                             } else if (eq.type === 'implicit' && eq.conicData) {
                                 const cd = eq.conicData(currentScope);
                                 if (cd) {
+                                    if (eq.name) currentScope[eq.name] = cd;
                                     // Make uniforms available for fnImplicit and shaders
                                     currentScope['u_conic_a'] = cd.a;
                                     currentScope['u_conic_b'] = cd.b;
@@ -967,7 +968,12 @@
 
             // If we click the first point again, close the polygon
             if (polygonPoints.length > 2 && polygonPoints[0] === ptName) {
-                expressions.addExpression(`Polygon(${polygonPoints.join(', ')})`);
+                for (let i = 0; i < polygonPoints.length; i++) {
+                    const p1 = polygonPoints[i];
+                    const p2 = polygonPoints[(i + 1) % polygonPoints.length];
+                    expressions.addExpression(`${autoName('s')} = Segment(${p1}, ${p2})`);
+                }
+                expressions.addExpression(`${autoName('poly')} = Polygon(${polygonPoints.join(', ')})`);
                 polygonPoints = [];
             } else {
                 polygonPoints.push(ptName);
@@ -1015,14 +1021,72 @@
             let clickedLineName = null;
             let clickedCurveName = null;
             
-            if (hoveredPointId) {
-                const eq = lastEquationsToDraw.find(e => e.id === hoveredPointId);
-                if (eq) clickedPointName = eq.name;
-            } else if (hoveredCurveId) {
-                const eq = lastEquationsToDraw.find(e => e.id === hoveredCurveId);
-                if (eq) {
-                    if (eq.type === 'line' || eq.type === 'segment') clickedLineName = eq.name;
-                    clickedCurveName = eq.name;
+            const HIT_PX = 15;
+            let minDist = HIT_PX;
+
+            // Direct point hit test
+            for (const eq of lastEquationsToDraw) {
+                if (eq.type === 'point' && eq.pointData) {
+                    try {
+                        const pData = eq.pointData(lastScope);
+                        const pts = Array.isArray(pData) ? pData : [pData];
+                        for (const p of pts) {
+                            if (!p || typeof p.x !== 'number') continue;
+                            const d = Math.hypot(p.x - mathP.x, p.y - mathP.y) * cam.state.zoom;
+                            if (d < minDist) { minDist = d; clickedPointName = eq.name; }
+                        }
+                    } catch {}
+                }
+            }
+
+            // Direct curve hit test
+            if (!clickedPointName) {
+                for (const eq of lastEquationsToDraw) {
+                    try {
+                        let hit = false;
+                        if (eq.type === 'segment' && eq.segmentData) {
+                            const seg = eq.segmentData(lastScope);
+                            if (seg) {
+                                const l2 = (seg.x2 - seg.x1)**2 + (seg.y2 - seg.y1)**2;
+                                const t = l2 > 0 ? Math.max(0, Math.min(1, ((mathP.x - seg.x1)*(seg.x2 - seg.x1) + (mathP.y - seg.y1)*(seg.y2 - seg.y1)) / l2)) : 0;
+                                if (Math.hypot(mathP.x - (seg.x1 + t*(seg.x2 - seg.x1)), mathP.y - (seg.y1 + t*(seg.y2 - seg.y1))) * cam.state.zoom < HIT_PX) hit = true;
+                            }
+                        } else if (eq.type === 'line' && eq.lineData) {
+                            const ld = eq.lineData(lastScope);
+                            const lines = Array.isArray(ld) ? ld : (ld ? [ld] : []);
+                            for (const l of lines) {
+                                if (typeof l.a === 'number') {
+                                    if (Math.abs(l.a * mathP.x + l.b * mathP.y + l.c) / Math.hypot(l.a, l.b) * cam.state.zoom < HIT_PX) hit = true;
+                                } else if (typeof l.px === 'number') {
+                                    const dlen = Math.hypot(l.dx, l.dy);
+                                    if (dlen > 0 && Math.abs((-l.dy/dlen)*(mathP.x - l.px) + (l.dx/dlen)*(mathP.y - l.py)) * cam.state.zoom < HIT_PX) hit = true;
+                                }
+                            }
+                        } else if (eq.type === 'circle' && eq.circleData) {
+                            const cd = eq.circleData(lastScope);
+                            if (cd && Math.abs(Math.hypot(mathP.x - cd.cx, mathP.y - cd.cy) - cd.r) * cam.state.zoom < HIT_PX) hit = true;
+                        } else if (eq.type === 'ellipse' && eq.ellipseData) {
+                            const ed = eq.ellipseData(lastScope);
+                            if (ed) {
+                                const nx = (mathP.x - ed.cx) / (ed.rx || 1), ny = (mathP.y - ed.cy) / (ed.ry || 1);
+                                if ((Math.abs(nx*nx + ny*ny - 1) / Math.hypot(2*nx/ed.rx, 2*ny/ed.ry)) * cam.state.zoom < HIT_PX) hit = true;
+                            }
+                        } else if ((eq.type === 'implicit' || eq.type === 'conic') && eq.fnImplicit) {
+                            const v = eq.fnImplicit(mathP.x, mathP.y, lastScope);
+                            const eps = 1.0 / cam.state.zoom;
+                            const gx = (eq.fnImplicit(mathP.x + eps, mathP.y, lastScope) - v) / eps;
+                            const gy = (eq.fnImplicit(mathP.x, mathP.y + eps, lastScope) - v) / eps;
+                            if ((Math.abs(v) / (Math.hypot(gx, gy) || 1)) * cam.state.zoom < HIT_PX) hit = true;
+                        } else if (eq.type === 'explicit' && eq.fnExplicit) {
+                            const y = eq.fnExplicit(mathP.x, lastScope);
+                            if (!isNaN(y) && Math.abs(mathP.y - y) * cam.state.zoom < HIT_PX) hit = true;
+                        }
+                        if (hit) {
+                            if (eq.type === 'line' || eq.type === 'segment') clickedLineName = eq.name;
+                            clickedCurveName = eq.name;
+                            break;
+                        }
+                    } catch {}
                 }
             }
 
@@ -1031,7 +1095,7 @@
                 if (targetName && !intersectLines.includes(targetName)) {
                     intersectLines.push(targetName);
                     if (intersectLines.length === 2) {
-                        expressions.addExpression(`${autoName('P')} = Intersect(${intersectLines[0]}, ${intersectLines[1]})`);
+                        expressions.addExpression(`${autoName('P')} = Intersect(${intersectLines[0]}, ${intersectLines[1]}, [${mathP.x.toFixed(2)}, ${mathP.y.toFixed(2)}])`);
                         intersectLines = [];
                     }
                 }
@@ -1187,8 +1251,14 @@
                     perpBisectorStartPoint = null;
                 } else if ($activeTool === 'tangent') {
                      const target = clickedLineName || clickedCurveName || ptName;
-                     expressions.addExpression(`${autoName('L')} = Tangent(${tangentStartPoint}, ${target})`);
+                     const src = tangentStartPoint;
                      tangentStartPoint = null;
+                     // Create two indexed expressions so each tangent is an independent line object.
+                     // If only one tangent exists (point on conic), the second expression evaluates to null silently.
+                     const n1 = autoName('L');
+                     const n2 = autoName('L');
+                     expressions.addExpression(`${n1} = Tangent(${src}, ${target}, 1)`);
+                     expressions.addExpression(`${n2} = Tangent(${src}, ${target}, 2)`);
                 }
             }
             return;

@@ -39,7 +39,8 @@ function toImplicit(l: any) {
   if (
     typeof l.a === "number" &&
     typeof l.b === "number" &&
-    typeof l.c === "number"
+    typeof l.c === "number" &&
+    typeof l.d !== "number" // ensure it's not a conic
   ) {
     return l;
   }
@@ -469,6 +470,7 @@ export function compileGeometry(
           name,
           type: "point",
           vars: Array.from(vars),
+          isDraggable: false,
           pointData: (scope: any) => {
             const A = codes[0].evaluate(scope);
             if (codes.length === 1) {
@@ -722,6 +724,7 @@ export function compileGeometry(
           name,
           type: "point",
           vars: Array.from(vars),
+          isDraggable: false,
           pointData: (scope: any) => {
             const o1 = codes[0].evaluate(scope);
             const o2 = codes[1].evaluate(scope);
@@ -740,6 +743,26 @@ export function compileGeometry(
             const c1 = toImplicitConic(o1);
             const c2 = toImplicitConic(o2);
             
+            const filterPts = (pts: {x:number, y:number}[]) => {
+                if (!pts || pts.length === 0) return null;
+                const uniquePts = [];
+                for (const p of pts) {
+                    if (!uniquePts.some(up => Math.hypot(up.x - p.x, up.y - p.y) < 1e-4)) {
+                        uniquePts.push(p);
+                    }
+                }
+                if (codes.length >= 3) {
+                    const ref = codes[2].evaluate(scope);
+                    const refPt = parsePt(ref);
+                    if (refPt && uniquePts.length > 0) {
+                        uniquePts.sort((a, b) => Math.hypot(a.x - refPt.x, a.y - refPt.y) - Math.hypot(b.x - refPt.x, b.y - refPt.y));
+                        return uniquePts[0];
+                    }
+                }
+                return uniquePts.length === 1 ? uniquePts[0] : uniquePts;
+            };
+
+            
             if (l1 && l2) {
               const det = l1.a * l2.b - l2.a * l1.b;
               if (Math.abs(det) > 1e-10) {
@@ -748,69 +771,188 @@ export function compileGeometry(
               return null;
             }
             
-            if (c1 && l2) {
-                // Line l2: a*x + b*y + c = 0
-                // Conic c1: a*x^2 + b*xy + c*y^2 + d*x + e*y + f = 0
+            const conicArg = c1 && !l1 ? c1 : (c2 && !l2 ? c2 : null);
+            const lineArg = l1 && !c1 ? l1 : (l2 && !c2 ? l2 : null);
+
+            // In some cases, toImplicitConic also handles circles which might be parsed as lines if they are degenerate, 
+            // but let's just properly check if we have one line and one conic.
+            if ((c1 && l2 && !l1) || (c2 && l1 && !c1)) {
+                const theConic = (c1 && l2 && !l1) ? c1 : c2;
+                const theLine = (c1 && l2 && !l1) ? l2 : l1;
+                
+                // Line: a*x + b*y + c = 0
+                // Conic: a*x^2 + b*xy + c*y^2 + d*x + e*y + f = 0
                 const pts = [];
-                if (Math.abs(l2.b) > Math.abs(l2.a)) {
-                    // y = -(l2.a*x + l2.c)/l2.b
-                    const m = -l2.a/l2.b, k = -l2.c/l2.b;
-                    const A = c1.a + c1.b*m + c1.c*m*m;
-                    const B = c1.b*k + 2*c1.c*m*k + c1.d + c1.e*m;
-                    const C = c1.c*k*k + c1.e*k + c1.f;
+                if (Math.abs(theLine.b) > Math.abs(theLine.a)) {
+                    // y = -(theLine.a*x + theLine.c)/theLine.b
+                    const m = -theLine.a/theLine.b, k = -theLine.c/theLine.b;
+                    const A = theConic.a + theConic.b*m + theConic.c*m*m;
+                    const B = theConic.b*k + 2*theConic.c*m*k + theConic.d + theConic.e*m;
+                    const C = theConic.c*k*k + theConic.e*k + theConic.f;
                     const delta = B*B - 4*A*C;
-                    if (delta >= 0) {
+                    if (delta >= 0 && Math.abs(A) > 1e-10) {
                         const x1 = (-B + Math.sqrt(delta))/(2*A);
                         const x2 = (-B - Math.sqrt(delta))/(2*A);
                         pts.push({x: x1, y: m*x1 + k});
                         if (delta > 1e-8) pts.push({x: x2, y: m*x2 + k});
                     }
-                } else {
-                    const m = -l2.b/l2.a, k = -l2.c/l2.a;
-                    const A = c1.c + c1.b*m + c1.a*m*m;
-                    const B = c1.b*k + 2*c1.a*m*k + c1.e + c1.d*m;
-                    const C = c1.a*k*k + c1.d*k + c1.f;
+                } else if (Math.abs(theLine.a) > 1e-10) {
+                    const m = -theLine.b/theLine.a, k = -theLine.c/theLine.a;
+                    const A = theConic.c + theConic.b*m + theConic.a*m*m;
+                    const B = theConic.b*k + 2*theConic.a*m*k + theConic.e + theConic.d*m;
+                    const C = theConic.a*k*k + theConic.d*k + theConic.f;
                     const delta = B*B - 4*A*C;
-                    if (delta >= 0) {
+                    if (delta >= 0 && Math.abs(A) > 1e-10) {
                         const y1 = (-B + Math.sqrt(delta))/(2*A);
                         const y2 = (-B - Math.sqrt(delta))/(2*A);
                         pts.push({x: m*y1 + k, y: y1});
                         if (delta > 1e-8) pts.push({x: m*y2 + k, y: y2});
                     }
                 }
-                return pts.length === 1 ? pts[0] : (pts.length ? pts : null);
+                return filterPts(pts);
             }
             
-            if (c1 && c2) {
-                // Extremely simple numeric solver for generic conics intersections
+            if (c1 && c2 && !(c1 === c2)) {
+                // If both are circles, we can solve analytically by intersecting the radical axis with one circle
+                const isCirc = (c:any) => Math.abs(c.a - c.c) < 1e-8 && Math.abs(c.b) < 1e-8 && Math.abs(c.a) > 1e-10;
+                if (isCirc(c1) && isCirc(c2)) {
+                    // Normalize
+                    const d1 = c1.d/c1.a, e1 = c1.e/c1.a, f1 = c1.f/c1.a;
+                    const d2 = c2.d/c2.a, e2 = c2.e/c2.a, f2 = c2.f/c2.a;
+                    
+                    // Radical axis: (d1-d2)x + (e1-e2)y + (f1-f2) = 0
+                    const L_a = d1 - d2;
+                    const L_b = e1 - e2;
+                    const L_c = f1 - f2;
+                    
+                    if (Math.hypot(L_a, L_b) > 1e-10) {
+                        // Intersect line L with circle c1
+                        const pts = [];
+                        if (Math.abs(L_b) > Math.abs(L_a)) {
+                            const m = -L_a/L_b, k = -L_c/L_b;
+                            const A = 1 + m*m;
+                            const B = 2*m*k + d1 + e1*m;
+                            const C = k*k + e1*k + f1;
+                            const delta = B*B - 4*A*C;
+                            if (delta >= 0 && Math.abs(A) > 1e-10) {
+                                const x1 = (-B + Math.sqrt(delta))/(2*A);
+                                const x2 = (-B - Math.sqrt(delta))/(2*A);
+                                pts.push({x: x1, y: m*x1 + k});
+                                if (delta > 1e-8) pts.push({x: x2, y: m*x2 + k});
+                            }
+                        } else {
+                            const m = -L_b/L_a, k = -L_c/L_a;
+                            const A = 1 + m*m;
+                            const B = 2*m*k + e1 + d1*m;
+                            const C = k*k + d1*k + f1;
+                            const delta = B*B - 4*A*C;
+                            if (delta >= 0 && Math.abs(A) > 1e-10) {
+                                const y1 = (-B + Math.sqrt(delta))/(2*A);
+                                const y2 = (-B - Math.sqrt(delta))/(2*A);
+                                pts.push({x: m*y1 + k, y: y1});
+                                if (delta > 1e-8) pts.push({x: m*y2 + k, y: y2});
+                            }
+                        }
+                        return filterPts(pts);
+                    } else {
+                        // Concentric circles
+                        return null;
+                    }
+                }
+
+                // Try robust parametric intersection if at least one is bounded (circle or ellipse)
+                const getParametric = (o: any) => {
+                    if (o && typeof o.cx === 'number' && typeof o.cy === 'number') {
+                        if (typeof o.r === 'number') return { cx: o.cx, cy: o.cy, rx: o.r, ry: o.r };
+                        if (typeof o.rx === 'number' && typeof o.ry === 'number') return { cx: o.cx, cy: o.cy, rx: o.rx, ry: o.ry };
+                    }
+                    return null;
+                };
+
+                const p1 = getParametric(o1);
+                const p2 = getParametric(o2);
+
+                if (p1 || p2) {
+                    const paramCurve = p1 || p2;
+                    const implicitConic = p1 ? c2 : c1;
+
+                    const pts = [];
+                    const steps = 720; // 0.5 degree steps
+                    for(let i=0; i<steps; i++) {
+                        const t = i * 2 * Math.PI / steps;
+                        const x = paramCurve.cx + paramCurve.rx * Math.cos(t);
+                        const y = paramCurve.cy + paramCurve.ry * Math.sin(t);
+                        const v = implicitConic.a*x*x + implicitConic.b*x*y + implicitConic.c*y*y + implicitConic.d*x + implicitConic.e*y + implicitConic.f;
+                        
+                        const t_next = (i+1) * 2 * Math.PI / steps;
+                        const x_next = paramCurve.cx + paramCurve.rx * Math.cos(t_next);
+                        const y_next = paramCurve.cy + paramCurve.ry * Math.sin(t_next);
+                        const v_next = implicitConic.a*x_next*x_next + implicitConic.b*x_next*y_next + implicitConic.c*y_next*y_next + implicitConic.d*x_next + implicitConic.e*y_next + implicitConic.f;
+
+                        if (v * v_next <= 0) {
+                            // Sign change! A root exists between t and t_next
+                            // Use binary search (bisection) to find the exact t
+                            let t_a = t, t_b = t_next;
+                            let v_a = v;
+                            for(let j=0; j<25; j++) {
+                                const t_mid = (t_a + t_b) / 2;
+                                const x_mid = paramCurve.cx + paramCurve.rx * Math.cos(t_mid);
+                                const y_mid = paramCurve.cy + paramCurve.ry * Math.sin(t_mid);
+                                const v_mid = implicitConic.a*x_mid*x_mid + implicitConic.b*x_mid*y_mid + implicitConic.c*y_mid*y_mid + implicitConic.d*x_mid + implicitConic.e*y_mid + implicitConic.f;
+                                if (v_a * v_mid <= 0) {
+                                    t_b = t_mid;
+                                } else {
+                                    t_a = t_mid; 
+                                    v_a = v_mid;
+                                }
+                            }
+                            const t_root = (t_a + t_b) / 2;
+                            const rx = paramCurve.cx + paramCurve.rx * Math.cos(t_root);
+                            const ry = paramCurve.cy + paramCurve.ry * Math.sin(t_root);
+                            if (!pts.some(pt => Math.hypot(pt.x-rx, pt.y-ry) < 1e-3)) {
+                                pts.push({x: rx, y: ry});
+                            }
+                        }
+                    }
+                    return filterPts(pts);
+                }
+
+                // General numeric solver for generic conics intersections
                 // Grid search + Newton
+                
+                // Normalize coefficients to prevent scaling issues with determinant-based conics
+                const norm1 = Math.hypot(c1.a, c1.b, c1.c, c1.d, c1.e, c1.f);
+                const norm2 = Math.hypot(c2.a, c2.b, c2.c, c2.d, c2.e, c2.f);
+                const nc1 = { a: c1.a/norm1, b: c1.b/norm1, c: c1.c/norm1, d: c1.d/norm1, e: c1.e/norm1, f: c1.f/norm1 };
+                const nc2 = { a: c2.a/norm2, b: c2.b/norm2, c: c2.c/norm2, d: c2.d/norm2, e: c2.e/norm2, f: c2.f/norm2 };
+
                 const pts = [];
-                for(let x = -20; x <= 20; x+=1.5) {
-                    for(let y = -20; y <= 20; y+=1.5) {
+                for(let x = -2000; x <= 2000; x+=25.0) {
+                    for(let y = -2000; y <= 2000; y+=25.0) {
                         let cx = x, cy = y;
-                        for(let i=0; i<10; i++) {
-                            const v1 = c1.a*cx*cx + c1.b*cx*cy + c1.c*cy*cy + c1.d*cx + c1.e*cy + c1.f;
-                            const v2 = c2.a*cx*cx + c2.b*cx*cy + c2.c*cy*cy + c2.d*cx + c2.e*cy + c2.f;
+                        for(let i=0; i<20; i++) {
+                            const v1 = nc1.a*cx*cx + nc1.b*cx*cy + nc1.c*cy*cy + nc1.d*cx + nc1.e*cy + nc1.f;
+                            const v2 = nc2.a*cx*cx + nc2.b*cx*cy + nc2.c*cy*cy + nc2.d*cx + nc2.e*cy + nc2.f;
                             if (Math.abs(v1) < 1e-7 && Math.abs(v2) < 1e-7) break;
-                            const J11 = 2*c1.a*cx + c1.b*cy + c1.d;
-                            const J12 = 2*c1.c*cy + c1.b*cx + c1.e;
-                            const J21 = 2*c2.a*cx + c2.b*cy + c2.d;
-                            const J22 = 2*c2.c*cy + c2.b*cx + c2.e;
+                            const J11 = 2*nc1.a*cx + nc1.b*cy + nc1.d;
+                            const J12 = 2*nc1.c*cy + nc1.b*cx + nc1.e;
+                            const J21 = 2*nc2.a*cx + nc2.b*cy + nc2.d;
+                            const J22 = 2*nc2.c*cy + nc2.b*cx + nc2.e;
                             const det = J11*J22 - J12*J21;
-                            if (Math.abs(det) < 1e-10) break;
+                            if (Math.abs(det) < 1e-12) break;
                             cx -= (J22*v1 - J12*v2)/det;
                             cy -= (-J21*v1 + J11*v2)/det;
                         }
-                        const v1 = c1.a*cx*cx + c1.b*cx*cy + c1.c*cy*cy + c1.d*cx + c1.e*cy + c1.f;
-                        const v2 = c2.a*cx*cx + c2.b*cx*cy + c2.c*cy*cy + c2.d*cx + c2.e*cy + c2.f;
-                        if (Math.abs(v1) < 1e-5 && Math.abs(v2) < 1e-5) {
+                        const final_v1 = nc1.a*cx*cx + nc1.b*cx*cy + nc1.c*cy*cy + nc1.d*cx + nc1.e*cy + nc1.f;
+                        const final_v2 = nc2.a*cx*cx + nc2.b*cx*cy + nc2.c*cy*cy + nc2.d*cx + nc2.e*cy + nc2.f;
+                        if (Math.abs(final_v1) < 1e-6 && Math.abs(final_v2) < 1e-6) {
                             if (!pts.some(p => Math.hypot(p.x-cx, p.y-cy) < 1e-3)) {
                                 pts.push({x: cx, y: cy});
                             }
                         }
                     }
                 }
-                return pts.length === 1 ? pts[0] : (pts.length ? pts : null);
+                return filterPts(pts);
             }
             return null;
           },
@@ -845,7 +987,7 @@ export function compileGeometry(
                 const Gy = 2*conic.c*py + conic.b*px + conic.e;
                 const gradMag = Math.hypot(Gx, Gy);
                 const distToConic = gradMag > 1e-10 ? Math.abs(F_val) / gradMag : Math.abs(F_val);
-                if (distToConic < 1e-3) {
+                if (distToConic < 0.1) {
                     return { a: L_a, b: L_b, c: L_c }; // single tangent at point on conic
                 }
 
@@ -863,16 +1005,6 @@ export function compileGeometry(
                         tangentPts.push({x: x1, y: m*x1 + k});
                         if (delta > 1e-8) tangentPts.push({x: x2, y: m*x2 + k});
                     }
-                } else if ($activeTool === 'tangent') {
-                     const target = clickedLineName || clickedCurveName || ptName;
-                     const src = tangentStartPoint;
-                     tangentStartPoint = null;
-                     // Create two indexed expressions so each tangent is an independent line object.
-                     // If only one tangent exists (point on conic), the second expression evaluates to null silently.
-                     const n1 = autoName('L');
-                     const n2 = autoName('L');
-                     expressions.addExpression(`${n1} = Tangent(${src}, ${target}, 1)`);
-                     expressions.addExpression(`${n2} = Tangent(${src}, ${target}, 2)`);
                 } else if (Math.abs(L_a) > 1e-10) {
                     const m = -L_b/L_a, k = -L_c/L_a;
                     const A = conic.c + conic.b*m + conic.a*m*m;
@@ -924,6 +1056,47 @@ export function compileGeometry(
                     }
                 }
             }
+
+            // Circle-Circle common tangents
+            if (o1 && o2 && typeof o1.cx === 'number' && typeof o1.cy === 'number' && typeof o1.r === 'number' &&
+                typeof o2.cx === 'number' && typeof o2.cy === 'number' && typeof o2.r === 'number') {
+                const cx1 = o1.cx, cy1 = o1.cy, r1 = o1.r;
+                const cx2 = o2.cx, cy2 = o2.cy, r2 = o2.r;
+                const dx = cx2 - cx1;
+                const dy = cy2 - cy1;
+                const d = Math.hypot(dx, dy);
+                if (d > 1e-6) {
+                    const theta = Math.atan2(dy, dx);
+                    const tangents = [];
+
+                    // External tangents (exist if d >= |r1 - r2|)
+                    const R_ext = r2 - r1;
+                    if (d >= Math.abs(R_ext)) {
+                        const cosAlpha = R_ext / d;
+                        const sinAlpha = Math.sqrt(Math.max(0, 1 - cosAlpha * cosAlpha));
+                        for (const sign of [-1, 1]) {
+                            const a = cosAlpha * (dx/d) - sign * sinAlpha * (dy/d);
+                            const b = cosAlpha * (dy/d) + sign * sinAlpha * (dx/d);
+                            const c = r1 - (a * cx1 + b * cy1);
+                            tangents.push({ a, b, c });
+                        }
+                    }
+
+                    // Internal tangents (exist if d >= r1 + r2)
+                    const R_int = r1 + r2;
+                    if (d >= R_int) {
+                        const cosAlpha = R_int / d;
+                        const sinAlpha = Math.sqrt(Math.max(0, 1 - cosAlpha * cosAlpha));
+                        for (const sign of [-1, 1]) {
+                            const a = cosAlpha * (dx/d) - sign * sinAlpha * (dy/d);
+                            const b = cosAlpha * (dy/d) + sign * sinAlpha * (dx/d);
+                            const c = -r1 - (a * cx1 + b * cy1);
+                            tangents.push({ a, b, c });
+                        }
+                    }
+                    if (tangents.length) return tangents;
+                }
+            }
             return null;
       };
 
@@ -951,8 +1124,10 @@ export function compileGeometry(
           type: "line",
           vars: Array.from(vars),
           lineData: (scope: any) => {
-            const idx = Math.round(codes[2].evaluate(scope)) - 1; // 1-indexed → 0-indexed
-            const all = computeTangentLines(codes[0].evaluate(scope), codes[1].evaluate(scope));
+            const o1 = codes[0].evaluate(scope);
+            const o2 = codes[1].evaluate(scope);
+            const idx = Math.round(codes[2].evaluate(scope)) - 1;
+            const all = computeTangentLines(o1, o2);
             if (all === null) return null;
             if (!Array.isArray(all)) {
                 // single line (point on conic)
@@ -1178,7 +1353,8 @@ export function compileGeometry(
               determinant(getSub(4)),
               -determinant(getSub(5))
             ];
-            return { a: cofs[0], b: cofs[1], c: cofs[2], d: cofs[3], e: cofs[4], f: cofs[5] };
+            const norm = Math.hypot(...cofs) || 1;
+            return { a: cofs[0]/norm, b: cofs[1]/norm, c: cofs[2]/norm, d: cofs[3]/norm, e: cofs[4]/norm, f: cofs[5]/norm };
           }
           
           if (pts.length + lines.length === 5) {
