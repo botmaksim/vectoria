@@ -35,12 +35,23 @@
                 Logger.debug('EquationInput', `User modified expression ${expression.id}: ${text}`);
                 expressions.updateText(expression.id, text, latex);
             });
-            mathFieldRef.addEventListener('focusin', () => isFocused = true);
-            mathFieldRef.addEventListener('focusout', () => {
+            mathFieldRef.addEventListener('focus', () => isFocused = true);
+            mathFieldRef.addEventListener('blur', () => {
                 setTimeout(() => isFocused = false, 150);
             });
         }
     });
+
+    function portal(node: HTMLElement) {
+        document.body.appendChild(node);
+        return {
+            destroy() {
+                if (node.parentNode) {
+                    node.parentNode.removeChild(node);
+                }
+            }
+        };
+    }
 
     // Keep math-field value in sync with external expression updates (e.g. from state recovery or presets)
     $: if (mathFieldRef && expression && expression.latex !== undefined) {
@@ -199,7 +210,7 @@
 {#if isFocused && windowWidth <= 768}
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<div class="mobile-equation-overlay" on:click|preventDefault>
+<div class="mobile-equation-overlay" use:portal on:click|preventDefault>
     <div class="overlay-header">
         <span>Редактирование</span>
         <button on:click={() => isFocused = false}>✕</button>

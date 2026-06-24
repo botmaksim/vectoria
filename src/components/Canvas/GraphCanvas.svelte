@@ -1699,6 +1699,13 @@ let container: HTMLDivElement;
         background: var(--bg-surface-hover, var(--border-color));
         transform: translateY(-2px);
     }
+
+    @media (max-width: 768px) {
+        .zoom-controls {
+            display: none;
+        }
+    }
+
     .webgl-layer {
         pointer-events: none;
         z-index: 1;

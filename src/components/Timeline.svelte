@@ -158,6 +158,14 @@
             max-width: 400px;
         }
         
+        .timeline-container.collapsed {
+            transform: translate(-50%, calc(100% + 85px));
+        }
+        
+        .timeline-container.collapsed .collapse-btn {
+            transform: translateY(calc(-100% - 85px));
+        }
+        
         .timeline-panel {
             min-width: 0;
             width: 100%;
